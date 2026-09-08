@@ -36,3 +36,6 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# stato della partita in corso: viene riscritto a ogni round, non va condiviso
+/data/game-state.json
