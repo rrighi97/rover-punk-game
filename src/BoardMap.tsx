@@ -1,19 +1,37 @@
 // PLANCIA DI GIOCO
 // La mappa arriva dal server dentro lo stato della partita: qui viene solo disegnata.
-// Le stanze sono posizionate su una griglia col/row e i corridoi sono le linee che
-// collegano i centri di due stanze adiacenti, così la plancia resta leggibile a distanza.
+// È generata proceduralmente, quindi la geometria si ricava dalle stanze stesse: ogni stanza
+// occupa una cella (quadrata) o due celle adiacenti (rettangolare, il doppio esatto).
+// I corridoi disegnati sono SOLO le porte reali: due stanze possono essere confinanti e
+// restare separate da un muro cieco, e in quel caso fra loro non compare nessuna linea.
 
 export type Room = {
-  id: string; name: string; col: number; row: number; links: string[];
-  node?: boolean; exit?: boolean; vault?: boolean; cover?: boolean; exposed?: boolean;
+  id: string; name: string; col: number; row: number; w?: number; h?: number; links: string[];
+  node?: boolean; exit?: boolean; vault?: boolean; cover?: boolean; exposed?: boolean; start?: boolean;
 };
-export type Pawn = { id: string; label: string; name: string; color?: string; down?: boolean; self?: boolean };
+export type Pawn = { id: string; label: string; name: string; color?: string; down?: boolean; self?: boolean; carrying?: boolean };
 export type Foe = { id: string; label: string; name: string; elite?: boolean; hunting?: boolean };
+// Segnalini di scenario e di missione: partenza, nodi, teca, valigetta, punto di consegna.
+export type Marker = { id: string; label: string; name: string; kind: string; done?: boolean };
 
-// Geometria della griglia, in percentuale sul riquadro della plancia.
-const ROOM_W = 26, ROOM_H = 27, COL_STEP = 32, ROW_STEP = 32, OFF_X = 5, OFF_Y = 5;
-const boxOf = (room: Room) => ({ left: OFF_X + (room.col - 1) * COL_STEP, top: OFF_Y + (room.row - 1) * ROW_STEP });
-const centerOf = (room: Room) => ({ x: boxOf(room).left + ROOM_W / 2, y: boxOf(room).top + ROOM_H / 2 });
+const GAP = 1.8; // spazio fra due stanze, in percentuale del riquadro
+
+function geometry(rooms: Room[]) {
+  const cols = Math.max(1, ...rooms.map((r) => r.col + (r.w || 1) - 1));
+  const rows = Math.max(1, ...rooms.map((r) => r.row + (r.h || 1) - 1));
+  const cellW = 100 / cols, cellH = 100 / rows;
+  const boxOf = (room: Room) => ({
+    left: (room.col - 1) * cellW + GAP / 2,
+    top: (room.row - 1) * cellH + GAP / 2,
+    width: (room.w || 1) * cellW - GAP,
+    height: (room.h || 1) * cellH - GAP,
+  });
+  const centerOf = (room: Room) => {
+    const box = boxOf(room);
+    return { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+  };
+  return { boxOf, centerOf };
+}
 
 function corridors(rooms: Room[]) {
   const seen = new Set<string>();
@@ -31,29 +49,28 @@ function corridors(rooms: Room[]) {
   return out;
 }
 
-function RoomMarks({ room, breached }: { room: Room; breached: boolean }) {
+// Etichette d'ambiente: restano testuali perché descrivono la stanza, non un obiettivo.
+function RoomMarks({ room }: { room: Room }) {
   return <div className="tile-marks">
-    {room.node && <i className={`mark node ${breached ? 'done' : ''}`}>{breached ? 'NODO VIOLATO' : 'NODO ATTIVO'}</i>}
-    {room.vault && <i className="mark vault">OBIETTIVO</i>}
-    {room.exit && <i className="mark exit">ESTRAZIONE</i>}
-    {room.cover && <i className="mark cover">COPERTURA</i>}
-    {room.exposed && <i className="mark exposed">ZONA ESPOSTA</i>}
+    {room.cover && <i className="mark cover" title="COPERTURA — l’azione COPERTURA vale +6 scudo in questa stanza">COPERTURA</i>}
+    {room.exposed && <i className="mark exposed" title="ZONA ESPOSTA — chi resta qui a fine round alza l’allarme">ZONA ESPOSTA</i>}
   </div>;
 }
 
 export default function BoardMap({
-  rooms, nodes, pawnsIn, foesIn, variant = 'board', highlight = [], selected, currentRoom, onPick,
+  rooms, pawnsIn, foesIn, marksIn, variant = 'board', highlight = [], selected, currentRoom, onPick,
 }: {
   rooms: Room[];
-  nodes: Record<string, boolean>;
   pawnsIn: (roomId: string) => Pawn[];
   foesIn: (roomId: string) => Foe[];
+  marksIn?: (roomId: string) => Marker[];
   variant?: 'board' | 'mini';
   highlight?: string[];
   selected?: string;
   currentRoom?: string;
   onPick?: (roomId: string) => void;
 }) {
+  const { boxOf, centerOf } = geometry(rooms);
   return <div className={`board-map ${variant}`}>
     <svg className="map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
       {/* Due passate sullo stesso tracciato: la fascia scura è il corridoio, la linea sottile la sua guida luminosa. */}
@@ -68,6 +85,7 @@ export default function BoardMap({
       const box = boxOf(room);
       const pawns = pawnsIn(room.id);
       const foes = foesIn(room.id);
+      const marks = marksIn?.(room.id) || [];
       const reachable = highlight.includes(room.id);
       const classes = ['tile'];
       if (foes.length) classes.push('hostile');
@@ -75,19 +93,26 @@ export default function BoardMap({
       if (reachable) classes.push('reachable');
       if (room.id === selected) classes.push('selected');
       if (room.exit) classes.push('exit-room');
+      if (room.start) classes.push('start-room');
+      if ((room.w || 1) * (room.h || 1) === 2) classes.push('wide');
       const Tag = onPick && reachable ? 'button' : 'div';
       return <Tag
         key={room.id}
         className={classes.join(' ')}
-        style={{ left: `${box.left}%`, top: `${box.top}%`, width: `${ROOM_W}%`, height: `${ROOM_H}%` }}
+        style={{ left: `${box.left}%`, top: `${box.top}%`, width: `${box.width}%`, height: `${box.height}%` }}
         {...(onPick && reachable ? { onClick: () => onPick(room.id), type: 'button' as const } : {})}
       >
         <header><b>{room.id}</b><small>{room.name}</small></header>
-        <RoomMarks room={room} breached={Boolean(nodes[room.id])} />
+        <RoomMarks room={room} />
         <div className="tokens">
+          {marks.map((mark) => <span
+            className={`token mark-token ${mark.kind} ${mark.done ? 'done' : ''}`}
+            title={mark.name}
+            key={mark.id}
+          >{mark.label}</span>)}
           {foes.map((foe) => <span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''}`} title={foe.name} key={foe.id}>{foe.label}</span>)}
           {pawns.map((pawn) => <span
-            className={`token pawn ${pawn.down ? 'down' : ''} ${pawn.self ? 'self' : ''}`}
+            className={`token pawn ${pawn.down ? 'down' : ''} ${pawn.self ? 'self' : ''} ${pawn.carrying ? 'carrying' : ''}`}
             title={pawn.name}
             style={{ '--unit': pawn.color } as React.CSSProperties}
             key={pawn.id}
