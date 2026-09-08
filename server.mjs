@@ -22,16 +22,30 @@ const ALARM_START = 15;            // allarme iniziale
 const ALARM_PER_ROUND = 3;         // pressione base di ogni round
 const ALARM_PER_CONTACT = 1;       // ogni ostile che a fine round è nella vostra stanza
 const ALARM_PER_EXPOSED = 1;       // per operativo fermo in zona esposta
-const ALARM_CARRY = 2;             // la valigetta emette: costa allarme ogni round
+const ALARM_CARRY = 1;             // la valigetta emette: costa allarme ogni round
 const ALARM_ON_GRAB = 10;          // picco nel momento in cui viene staccata dalla teca
 const ALARM_ON_DISENGAGE = 3;      // sganciarsi da una stanza presidiata (una volta per round)
 const ALARM_FACE_RELIEF = 16;      // Identità sintetica del FACE
 const ALARM_CHROME_SPIKE = 9;      // Sovraccarico cromo
-const LOCKDOWN_ALARM = 80;         // oltre questa soglia la torre sveglia tutti
+const LOCKDOWN_ALARM = 85;         // oltre questa soglia la torre sveglia tutti
+// Sulla plancia procedurale (fino a 16 stanze) più operativi si dividono su più fronti in
+// parallelo: senza un tetto, ogni stanza in contatto pesa a testa e le squadre numerose
+// pagherebbero più allarme delle piccole invece di beneficiare del numero. Il conteggio dei
+// contatti che pesa sull'allarme è quindi limitato, non lineare.
+const ALARM_CONTACT_CAP = 3;
 const NODES_REQUIRED = 2;          // nodi da violare per sbloccare la teca
 const SHIELD_DECAY = 4;
 const REVIVE_RATIO = 0.25;
 const LAZARUS_RATIO = 0.4;
+
+// MISSIONE 02 // GHOST PROTOCOL
+const GHOST_PURGE_ALARM_SPIKE = 12; // picco quando la PURGA viene lanciata
+const GHOST_ALARM_PER_ROUND_BONUS = 1; // pressione extra ogni round dopo la purga
+
+// MISSIONE 03 // OSTAGGIO
+const ALARM_ON_FREE = 10;          // picco quando l'informatore viene liberato
+const HOSTAGE_MAX_HP = 70;
+const HOSTAGE_UNESCORTED_DAMAGE = 18; // danno subito se lasciato solo con ostili
 
 // GENERAZIONE PROCEDURALE DELLA PLANCIA
 // La mappa non è più fissa: a ogni partita viene disegnata da zero su una griglia di celle.
@@ -218,6 +232,54 @@ const templates = [
   { id:'driver', callsign:'JAX', role:'DRIVER', specialty:'Droni e mobilità', color:'#ff8b4a', stats:{corpo:6,riflessi:9,mente:6,presenza:3}, maxHp:86, armor:4, focus:6, weapon:'Vector SMG', ability:'Sciame MANTA', abilityText:'Colpisce due ostili nella tua stanza o in una collegata.' },
 ];
 
+// CATALOGO MISSIONI
+// Ogni missione riusa lo stesso motore (plancia procedurale, nodi, allarme,
+// combattimento) e differisce solo per l'obiettivo finale in teca/nucleo/cella
+// e per la meccanica di "carico" che lo accompagna. `narrative` risolve i testi
+// che dipendono dai nomi delle stanze usando l'helper `roomName` locale a
+// `createGame`, perché lì la variabile globale `game` non è ancora assegnata.
+const MISSIONS = {
+  valigetta: {
+    id: 'valigetta', title: 'MISSIONE 01 // LA VALIGETTA', tagline: 'Furto ed estrazione',
+    brief: 'Plancia generata da zero a ogni partita. Violate i nodi per aprire la teca, recuperate la valigetta MNEMOSYNE e consegnatela al punto di raccolta. Gli Helix sono un ostacolo sulla strada, non l’obiettivo.',
+    goalHeadline: 'Recuperate MNEMOSYNE',
+    narrative(layout, roomName) {
+      return {
+        objective: `Violate ${NODES_REQUIRED} nodi per sbloccare la teca di ${roomName(layout.vaultRoom)}, recuperate la valigetta MNEMOSYNE e consegnatela in ${roomName(layout.dropRoom)}.`,
+        vaultUnlocked: `Teca di ${roomName(layout.vaultRoom)} sbloccata: la valigetta è prelevabile.`,
+        opening: 'Il blackout è iniziato. Aprite la teca, prendete la valigetta, sparite.',
+      };
+    },
+  },
+  nucleo: {
+    id: 'nucleo', title: 'MISSIONE 02 // GHOST PROTOCOL', tagline: 'Sabotaggio dati',
+    brief: 'Niente da rubare: violate i nodi per abbattere il firewall del nucleo dati, raggiungetelo e lanciate la PURGA. Da quel momento ogni sistema Helix converge sulla vostra posizione — sparire in fretta è l’unica strategia.',
+    goalHeadline: 'Cancellate MNEMOSYNE dal nucleo',
+    narrative(layout, roomName) {
+      return {
+        objective: `Violate ${NODES_REQUIRED} nodi per abbattere il firewall del nucleo dati in ${roomName(layout.vaultRoom)}, lanciate la PURGA e sparite da ${roomName(layout.dropRoom)} prima che la torre richiuda ogni via d’uscita.`,
+        vaultUnlocked: `Firewall del nucleo in ${roomName(layout.vaultRoom)} abbattuto: la PURGA è disponibile.`,
+        purged: `PURGA lanciata nel nucleo di ${roomName(layout.vaultRoom)}: ogni sistema Helix converge sulla vostra posizione.`,
+        opening: 'Il blackout è iniziato. Trovate il nucleo, lanciate la PURGA, sparite.',
+      };
+    },
+  },
+  ostaggio: {
+    id: 'ostaggio', title: 'MISSIONE 03 // OSTAGGIO', tagline: 'Salvataggio',
+    brief: 'Nella cella è rinchiuso un informatore. Violate i nodi per sbloccarla, liberatelo e scortatelo vivo fino al punto di consegna: non combatte, e se lo lasciate solo con degli ostili viene colpito ogni round finché qualcuno non torna a scortarlo.',
+    goalHeadline: 'Salvate l’informatore',
+    narrative(layout, roomName) {
+      return {
+        objective: `Violate ${NODES_REQUIRED} nodi per sbloccare la cella in ${roomName(layout.vaultRoom)}, liberate l’informatore e scortatelo vivo fino a ${roomName(layout.dropRoom)}.`,
+        vaultUnlocked: `Cella di ${roomName(layout.vaultRoom)} sbloccata: l’informatore può essere liberato.`,
+        opening: 'Il blackout è iniziato. Trovate la cella, liberate l’informatore, portatelo via vivo.',
+      };
+    },
+  },
+};
+const missionOf = (id) => MISSIONS[id] || MISSIONS.valigetta;
+const missionList = () => Object.values(MISSIONS).map(({ narrative: _narrative, ...meta }) => meta);
+
 let game = null;
 if (existsSync(DATA_FILE)) {
   try { game = JSON.parse(await readFile(DATA_FILE, 'utf8')); } catch { game = null; }
@@ -227,6 +289,8 @@ if (existsSync(DATA_FILE)) {
 if (game && (!Array.isArray(game.map) || !game.dropRoom || !game.vaultRoom)) game = null;
 // Manovra gratuita per round: le partite vecchie non hanno lo slot dedicato.
 if (game) for (const p of game.players) if (p.move === undefined) p.move = null;
+// Le partite salvate prima del sistema missioni sono tutte "LA VALIGETTA".
+if (game && !game.missionId) game.missionId = 'valigetta';
 
 const nowTime = () => new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
 const makeCode = () => `${['NEON','VOID','NOVA','GRID'][Math.floor(Math.random()*4)]}-${Math.floor(10+Math.random()*90)}`;
@@ -244,6 +308,12 @@ const vaultOpen = () => breachCount() >= (game.nodesRequired || NODES_REQUIRED);
 const caseRoomNow = () => {
   if (game.caseHolder) return game.players.find((p) => p.id === game.caseHolder)?.room || game.caseRoom;
   return game.caseRoom;
+};
+// Stesso principio della valigetta, ma per l'informatore della missione OSTAGGIO.
+const hostageRoomNow = () => {
+  if (!game.hostage) return null;
+  if (game.hostage.holder) return game.players.find((p) => p.id === game.hostage.holder)?.room || game.hostage.room;
+  return game.hostage.room;
 };
 
 function stepToward(from, destination) {
@@ -268,7 +338,7 @@ function publicGame() {
   const waiting = game.players.filter((p)=>alive(p)&&participant(p)&&!p.action).map((p)=>p.name);
   // Nessun tempo limite per turno: il round si chiude solo quando tutti hanno trasmesso.
   const secondsLeft = null;
-  return {...game, players, waiting, secondsLeft, roundSeconds:ROUND_SECONDS, caseAt:caseRoomNow(), vaultOpen:vaultOpen()};
+  return {...game, players, waiting, secondsLeft, roundSeconds:ROUND_SECONDS, caseAt:caseRoomNow(), hostageAt:hostageRoomNow(), vaultOpen:vaultOpen()};
 }
 
 function createGame(body) {
@@ -281,18 +351,22 @@ function createGame(body) {
   const hpScale=1+0.3*(players.length-3);
   const dmgScale=1+0.12*(players.length-3);
   const roomName=(id)=>{const r=layout.rooms.find((x)=>x.id===id);return `${id} // ${r?.name||''}`;};
+  const mission=missionOf(body.missionId);
+  const narrative={goalHeadline:mission.goalHeadline, ...mission.narrative(layout,roomName)};
   return {
     code:makeCode(), phase:'lobby', round:1, alarm:ALARM_START, breach:0, roundEndsAt:0, hpScale, dmgScale,
-    title:'MISSIONE 01 // LA VALIGETTA', location:`HELIX TOWER // SETTORE ${['NORD','SUD','EST','OVEST'][Math.floor(Math.random()*4)]}`,
-    objective:`Violate ${NODES_REQUIRED} nodi per sbloccare la teca di ${roomName(layout.vaultRoom)}, recuperate la valigetta MNEMOSYNE e consegnatela in ${roomName(layout.dropRoom)}.`,
+    missionId:mission.id, title:mission.title, location:`HELIX TOWER // SETTORE ${['NORD','SUD','EST','OVEST'][Math.floor(Math.random()*4)]}`,
+    objective:narrative.objective, narrative,
     map:layout.rooms, startRoom:layout.startRoom, vaultRoom:layout.vaultRoom, dropRoom:layout.dropRoom,
     nodeRooms:layout.nodeRooms, nodesRequired:NODES_REQUIRED,
     nodes:Object.fromEntries(layout.nodeRooms.map((id)=>[id,false])),
-    caseRoom:layout.vaultRoom, caseHolder:null, caseDelivered:false, lockdown:false,
+    caseRoom:layout.vaultRoom, caseHolder:null, caseDelivered:false, purged:false,
+    hostage:{room:layout.vaultRoom, holder:null, hp:HOSTAGE_MAX_HP, maxHp:HOSTAGE_MAX_HP, freed:false, delivered:false},
+    lockdown:false,
     players,
     enemies:buildEnemies(layout,layout.rooms,hpScale,dmgScale,players.length),
     feed:[{time:nowTime(),tone:'system',text:`Canale clandestino aperto. Squadra in posizione a ${roomName(layout.startRoom)}.`}],
-    event:{title:'FINESTRA OPERATIVA',text:'Il blackout copre l’infiltrazione, ma la teca è sigillata: servono i nodi.'},
+    event:{title:'FINESTRA OPERATIVA',text:'Il blackout copre l’infiltrazione, ma l’obiettivo è ancora sigillato: servono i nodi.'},
     createdAt:Date.now(),updatedAt:Date.now(),
   };
 }
@@ -320,7 +394,7 @@ function breachNode(roomId,actor,mente){
   game.breach=breachCount();
   game.alarm=Math.max(0,game.alarm-(8+Math.floor(mente/2)));
   log(`${actor} viola il nodo di ${roomLabel(roomId)} — nodi ${game.breach}/${game.nodeRooms.length}.`, 'hack');
-  if(vaultOpen()&&!game.vaultAnnounced){game.vaultAnnounced=true;log(`Teca di ${roomLabel(game.vaultRoom)} sbloccata: la valigetta è prelevabile.`,'success');}
+  if(vaultOpen()&&!game.vaultAnnounced){game.vaultAnnounced=true;log(game.narrative.vaultUnlocked,'success');}
 }
 
 // La valigetta cade dove cade chi la porta: recuperarla è un problema in più.
@@ -330,6 +404,15 @@ function dropCase(reason){
   game.caseRoom=holder.room;
   game.caseHolder=null;
   log(`La valigetta cade in ${roomLabel(holder.room)}: ${reason}.`,'danger');
+}
+
+// L'informatore non si muove da solo: se chi lo scorta cade, resta dov'è.
+function dropHostage(reason){
+  const holder=game.players.find((p)=>p.id===game.hostage.holder);
+  if(!holder) return;
+  game.hostage.room=holder.room;
+  game.hostage.holder=null;
+  log(`L’informatore resta indietro in ${roomLabel(holder.room)}: ${reason}.`,'danger');
 }
 
 // FASE 1 // MANOVRA: tutti gli spostamenti si risolvono prima del fuoco, così la posizione
@@ -355,8 +438,12 @@ function resolveMovement(actors){
       log(`${p.name} si sgancia sotto il fuoco di ${guards[0].name}: ${hit} danni.`,'danger');
     }
     p.room=destination;
-    if(alive(p)) log(`${p.name} raggiunge ${roomLabel(destination)}${game.caseHolder===p.id?' con la valigetta':''}.`,'system');
-    else { if(game.caseHolder===p.id) dropCase(`${p.name} è caduto nel passaggio`); log(`${p.name} crolla nel passaggio verso ${destination}.`,'danger'); }
+    if(alive(p)) log(`${p.name} raggiunge ${roomLabel(destination)}${game.caseHolder===p.id?' con la valigetta':''}${game.hostage.holder===p.id?' con l’informatore':''}.`,'system');
+    else {
+      if(game.caseHolder===p.id) dropCase(`${p.name} è caduto nel passaggio`);
+      if(game.hostage.holder===p.id) dropHostage(`${p.name} è caduto nel passaggio`);
+      log(`${p.name} crolla nel passaggio verso ${destination}.`,'danger');
+    }
   }
   return disengaged;
 }
@@ -389,6 +476,32 @@ function resolveActions(actors){
       }
     }
 
+    if(action.type==='purge'){
+      if(game.missionId!=='nucleo') log(`${p.name}: nessuna PURGA disponibile in questa missione.`,'system');
+      else if(game.purged) log(`${p.name}: il nucleo è già stato purgato.`,'system');
+      else if(p.room!==game.vaultRoom) log(`${p.name} non è nel nucleo dati.`,'system');
+      else if(!vaultOpen()) log(`${p.name}: il firewall del nucleo è ancora attivo.`,'system');
+      else{
+        game.purged=true;
+        game.alarm=Math.min(100,game.alarm+GHOST_PURGE_ALARM_SPIKE);
+        log(game.narrative.purged,'danger');
+      }
+    }
+
+    if(action.type==='free'){
+      if(game.missionId!=='ostaggio') log(`${p.name}: nessun informatore da liberare in questa missione.`,'system');
+      else if(game.hostage.delivered) log(`${p.name}: l’informatore è già stato consegnato.`,'system');
+      else if(game.hostage.holder) log(`${p.name}: l’informatore è già scortato da un compagno.`,'system');
+      else if(hostageRoomNow()!==p.room) log(`${p.name} non trova l’informatore in ${p.room}.`,'system');
+      else if(!game.hostage.freed&&p.room===game.vaultRoom&&!vaultOpen()) log(`${p.name}: la cella di ${p.room} è ancora sigillata.`,'system');
+      else{
+        const fresh=!game.hostage.freed;
+        game.hostage.holder=p.id;game.hostage.freed=true;
+        if(fresh){game.alarm=Math.min(100,game.alarm+ALARM_ON_FREE);log(`${p.name} libera l’informatore: allarme +${ALARM_ON_FREE}.`,'danger');}
+        else log(`${p.name} riprende la scorta dell’informatore in ${roomLabel(p.room)}.`,'success');
+      }
+    }
+
     if(action.type==='hack'){
       if(!room.node) log(`${p.name} non trova terminali in ${roomLabel(p.room)}.`,'system');
       else if(game.nodes[p.room]) log(`${p.name}: il nodo di ${p.room} è già violato.`,'system');
@@ -402,8 +515,8 @@ function resolveActions(actors){
     if(action.type==='guard'){
       const bonus=room.cover?6:0;
       const raw=10+Math.floor(p.stats.corpo/2)+bonus;
-      // Chi porta la valigetta ha una mano occupata: si ripara la metà.
-      p.shield=game.caseHolder===p.id?Math.round(raw/2):raw;
+      // Chi porta la valigetta o scorta l'informatore ha una mano occupata: si ripara la metà.
+      p.shield=(game.caseHolder===p.id||game.hostage.holder===p.id)?Math.round(raw/2):raw;
       log(bonus?`${p.name} sfrutta la copertura di ${p.room} (scudo ${p.shield}).`:`${p.name} assume posizione di copertura in ${p.room}.`,'system');
     }
 
@@ -475,7 +588,7 @@ function resolveEnemies(){
     const inRoom=alliesIn(enemy.room);
     if(inRoom.length){
       if(!enemy.locked){ enemy.locked=true; log(`${enemy.name} ingaggia la squadra in ${roomLabel(enemy.room)}.`,'danger'); }
-      const carrier=inRoom.find((p)=>p.id===game.caseHolder);
+      const carrier=inRoom.find((p)=>p.id===game.caseHolder||p.id===game.hostage.holder);
       const target=carrier||inRoom[(game.round+enemy.threat)%inRoom.length];
       enemy.chasing=target.id;
       const absorbed=Math.min(target.shield,enemy.damage);
@@ -487,7 +600,15 @@ function resolveEnemies(){
       if(target.hp===0){
         log(`${target.name} è fuori combattimento in ${enemy.room}.`,'danger');
         if(game.caseHolder===target.id) dropCase(`${target.name} è a terra`);
+        if(game.hostage.holder===target.id) dropHostage(`${target.name} è a terra`);
       }
+      continue;
+    }
+    // MISSIONE OSTAGGIO: nessun alleato vivo in stanza, ma l'informatore libero e non scortato
+    // sì — resta in balìa degli ostili finché qualcuno non torna a proteggerlo.
+    if(game.missionId==='ostaggio'&&game.hostage.freed&&!game.hostage.delivered&&!game.hostage.holder&&hostageRoomNow()===enemy.room){
+      game.hostage.hp=Math.max(0,game.hostage.hp-HOSTAGE_UNESCORTED_DAMAGE);
+      log(`${enemy.name} colpisce l’informatore lasciato solo in ${roomLabel(enemy.room)}: ${HOSTAGE_UNESCORTED_DAMAGE} danni.`,'danger');
       continue;
     }
     // Mai ingaggiato: resta di guardia dove si trova. Nessun movimento autonomo.
@@ -519,17 +640,22 @@ function resolveRound() {
 
   // Trasmette solo chi vi ha davvero addosso: un inseguitore che ha perso il contatto in
   // corridoio non alza l'allarme. Staccarsi dagli ostili è quindi una mossa che paga.
-  const contact=game.enemies.filter((e)=>alive(e)&&alliesIn(e.room).length).length;
+  const contact=Math.min(ALARM_CONTACT_CAP,game.enemies.filter((e)=>alive(e)&&alliesIn(e.room).length).length);
   const carrying=Boolean(game.caseHolder);
-  game.alarm=Math.min(100,game.alarm+ALARM_PER_ROUND+contact*ALARM_PER_CONTACT+exposedCount*ALARM_PER_EXPOSED+(carrying?ALARM_CARRY:0)+(disengaged?ALARM_ON_DISENGAGE:0));
+  const purgedPressure=game.missionId==='nucleo'&&game.purged;
+  game.alarm=Math.min(100,game.alarm+ALARM_PER_ROUND+contact*ALARM_PER_CONTACT+exposedCount*ALARM_PER_EXPOSED+(carrying?ALARM_CARRY:0)+(disengaged?ALARM_ON_DISENGAGE:0)+(purgedPressure?GHOST_ALARM_PER_ROUND_BONUS:0));
   game.breach=breachCount();
   game.round+=1;
   game.players.forEach((p)=>{p.action=null;p.move=null;p.shield=Math.max(0,p.shield-SHIELD_DECAY);p.focus=Math.min(p.maxFocus,p.focus+1);});
 
-  // CONSEGNA: la valigetta è al punto di raccolta appena chi la porta ci arriva a fine round.
-  if(!game.caseDelivered&&game.caseHolder&&game.players.find((p)=>p.id===game.caseHolder)?.room===game.dropRoom){
+  // CONSEGNA: la valigetta / l'informatore raggiunge il punto di raccolta a fine round.
+  if(game.missionId==='valigetta'&&!game.caseDelivered&&game.caseHolder&&game.players.find((p)=>p.id===game.caseHolder)?.room===game.dropRoom){
     game.caseDelivered=true;game.caseRoom=game.dropRoom;game.caseHolder=null;
     log(`Valigetta MNEMOSYNE consegnata in ${roomLabel(game.dropRoom)}. Estraete la squadra.`,'success');
+  }
+  if(game.missionId==='ostaggio'&&!game.hostage.delivered&&game.hostage.holder&&hostageRoomNow()===game.dropRoom){
+    game.hostage.delivered=true;game.hostage.room=game.dropRoom;game.hostage.holder=null;
+    log(`Informatore consegnato in ${roomLabel(game.dropRoom)}. Estraete la squadra.`,'success');
   }
 
   // LOCKDOWN: sopra la soglia la torre sveglia ogni presidio, anche quello mai ingaggiato.
@@ -541,16 +667,37 @@ function resolveRound() {
 
   const living=game.players.filter(alive);
   const extracted=living.length>0&&living.every((p)=>p.room===game.dropRoom);
-  if(game.caseDelivered&&extracted){
-    game.phase='victory';log(`Squadra estratta da ${roomLabel(game.dropRoom)}. MNEMOSYNE è nostro.`,'success');
+  const objectiveDone=game.missionId==='valigetta'?game.caseDelivered:game.missionId==='nucleo'?game.purged:game.hostage.delivered;
+  const hostageLost=game.missionId==='ostaggio'&&game.hostage.freed&&!game.hostage.delivered&&game.hostage.hp<=0;
+  if(objectiveDone&&extracted){
+    game.phase='victory';
+    const victoryLine=game.missionId==='valigetta'?`Squadra estratta da ${roomLabel(game.dropRoom)}. MNEMOSYNE è nostro.`
+      :game.missionId==='nucleo'?`Squadra estratta da ${roomLabel(game.dropRoom)}. Il nucleo Helix è stato cancellato.`
+      :`Squadra estratta da ${roomLabel(game.dropRoom)} con l’informatore vivo. Missione riuscita.`;
+    log(victoryLine,'success');
   }
-  else if(!living.length||game.alarm>=100){
-    game.phase='defeat';log('Protocollo Helix completato. La squadra è perduta.','danger');
+  else if(!living.length||game.alarm>=100||hostageLost){
+    game.phase='defeat';
+    log(hostageLost?'L’informatore non ce l’ha fatta: la missione è persa.':'Protocollo Helix completato. La squadra è perduta.','danger');
   }
   else{
-    if(game.caseDelivered) game.event={title:'ESTRAZIONE APERTA',text:`Portate ogni operativo vivo in ${roomLabel(game.dropRoom)} per chiudere l’operazione.`};
-    else if(game.caseHolder) game.event={title:'SEGNALE TRACCIATO',text:`La valigetta emette: l’allarme sale di ${ALARM_CARRY} ogni round finché non è in ${game.dropRoom}.`};
-    else if(vaultOpen()) game.event={title:'TECA APERTA',text:`La cifratura è caduta: la valigetta in ${roomLabel(game.vaultRoom)} è prelevabile.`};
+    let progressEvent=null;
+    if(game.missionId==='valigetta'){
+      if(game.caseDelivered) progressEvent={title:'ESTRAZIONE APERTA',text:`Portate ogni operativo vivo in ${roomLabel(game.dropRoom)} per chiudere l’operazione.`};
+      else if(game.caseHolder) progressEvent={title:'SEGNALE TRACCIATO',text:`La valigetta emette: l’allarme sale di ${ALARM_CARRY} ogni round finché non è in ${game.dropRoom}.`};
+      else if(vaultOpen()) progressEvent={title:'TECA APERTA',text:`La cifratura è caduta: la valigetta in ${roomLabel(game.vaultRoom)} è prelevabile.`};
+    }
+    else if(game.missionId==='nucleo'){
+      if(game.purged) progressEvent={title:'PURGA LANCIATA',text:`Ogni sistema Helix converge sul nucleo. Sparite da ${roomLabel(game.dropRoom)} prima che sia troppo tardi.`};
+      else if(vaultOpen()) progressEvent={title:'NUCLEO APERTO',text:`Il firewall è caduto: lanciate la PURGA dal nucleo in ${roomLabel(game.vaultRoom)}.`};
+    }
+    else if(game.missionId==='ostaggio'){
+      if(game.hostage.delivered) progressEvent={title:'ESTRAZIONE APERTA',text:`Portate ogni operativo vivo in ${roomLabel(game.dropRoom)} per chiudere l’operazione.`};
+      else if(game.hostage.holder) progressEvent={title:'SOTTO SCORTA',text:`L’informatore ha ${game.hostage.hp}/${game.hostage.maxHp} HP: non lasciatelo mai solo finché non è in ${roomLabel(game.dropRoom)}.`};
+      else if(game.hostage.freed) progressEvent={title:'INFORMATORE ABBANDONATO',text:`L’informatore è solo in ${roomLabel(hostageRoomNow())}: tornate a scortarlo prima che sia troppo tardi.`};
+      else if(vaultOpen()) progressEvent={title:'CELLA APERTA',text:`La cifratura è caduta: l’informatore in ${roomLabel(game.vaultRoom)} può essere liberato.`};
+    }
+    if(progressEvent) game.event=progressEvent;
     else if(game.lockdown) game.event={title:'LOCKDOWN',text:'Ogni presidio è allertato e si muove verso di voi.'};
     else if(game.round===5){
       game.event={title:'RINFORZI IN ARRIVO',text:`Una unità Helix entra da ${roomLabel(game.startRoom)}.`};
@@ -608,7 +755,7 @@ async function api(req,res,url){
   try{
     if(req.method==='GET'&&url.pathname==='/api/state'){
       if(tryResolve()) await save();
-      return send(res,200,{game:publicGame(),templates,networkUrl:getNetworkUrl(),networkUrls:networkCandidates()});
+      return send(res,200,{game:publicGame(),templates,missions:missionList(),networkUrl:getNetworkUrl(),networkUrls:networkCandidates()});
     }
     if(req.method==='POST'&&url.pathname==='/api/setup'){
       const body=await jsonBody(req);
@@ -637,12 +784,12 @@ async function api(req,res,url){
       if(game.phase!=='lobby')return send(res,409,{error:'Operazione già avviata.'});
       if(!game.players.some(connected))return send(res,409,{error:'Collega almeno un telefono prima di avviare.'});
       game.phase='active';game.roundEndsAt=Date.now()+roundLength();
-      log('Il blackout è iniziato. Aprite la teca, prendete la valigetta, sparite.','combat');await save();return send(res,200,{game:publicGame()});
+      log(game.narrative.opening,'combat');await save();return send(res,200,{game:publicGame()});
     }
     if(req.method==='POST'&&url.pathname==='/api/action'){
       const body=await jsonBody(req);if(!game||body.code!==game.code||game.phase!=='active')return send(res,409,{error:'Operazione non attiva.'});
       const p=game.players.find((x)=>x.id===body.playerId&&x.deviceId===body.deviceId);if(!p||!alive(p))return send(res,403,{error:'Accesso operativo negato.'});
-      const allowed=['move','attack','hack','guard','heal','ability','grab'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
+      const allowed=['move','attack','hack','guard','heal','ability','grab','purge','free'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
       // MANOVRA: spostamento gratuito di una stanza, non consuma l'azione del round e resta
       // ridichiarabile finché il round non si risolve. La plancia comanda: solo porte esistenti.
       if(body.type==='move'){
@@ -663,6 +810,14 @@ async function api(req,res,url){
       if(body.type==='grab'&&game.caseHolder)return send(res,400,{error:'La valigetta è già in mano a un compagno.'});
       if(body.type==='grab'&&caseRoomNow()!==actRoom)return send(res,400,{error:'La valigetta non è in questa stanza.'});
       if(body.type==='grab'&&actRoom===game.vaultRoom&&!vaultOpen())return send(res,400,{error:`Teca sigillata: violate ${game.nodesRequired} nodi.`});
+      if(body.type==='purge'&&game.missionId!=='nucleo')return send(res,400,{error:'Azione non disponibile in questa missione.'});
+      if(body.type==='purge'&&actRoom!==game.vaultRoom)return send(res,400,{error:'Devi essere nel nucleo dati.'});
+      if(body.type==='purge'&&!vaultOpen())return send(res,400,{error:`Firewall attivo: violate ${game.nodesRequired} nodi.`});
+      if(body.type==='purge'&&game.purged)return send(res,400,{error:'Il nucleo è già stato purgato.'});
+      if(body.type==='free'&&game.missionId!=='ostaggio')return send(res,400,{error:'Azione non disponibile in questa missione.'});
+      if(body.type==='free'&&game.hostage.holder)return send(res,400,{error:'L’informatore è già scortato da un compagno.'});
+      if(body.type==='free'&&hostageRoomNow()!==actRoom)return send(res,400,{error:'L’informatore non è in questa stanza.'});
+      if(body.type==='free'&&!game.hostage.freed&&actRoom===game.vaultRoom&&!vaultOpen())return send(res,400,{error:`Cella sigillata: violate ${game.nodesRequired} nodi.`});
       p.action={type:body.type,targetId:body.targetId||null,roomId:body.roomId||null};p.lastSeen=Date.now();log(`${p.name} ha trasmesso la propria azione.`,'system');
       tryResolve();
       await save();return send(res,200,{game:publicGame()});
