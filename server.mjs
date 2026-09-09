@@ -3,6 +3,8 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { networkInterfaces } from 'node:os';
+import { templates } from './characters.mjs';
+import { ENEMY_ROSTER } from './enemies.mjs';
 
 const PORT = Number(process.env.PORT || 5173);
 const DATA_DIR = new URL('./data/', import.meta.url);
@@ -56,28 +58,10 @@ function distanceMap(rooms, origin) {
   return dist;
 }
 
-// DATABASE NEMICI — set base di 5 unità Helix in ordine CRESCENTE di forza (tier 1 = più
-// fragile, tier 5 = più letale). Le missioni pescano da qui il proprio presidio: il presidio
+// Statistiche in enemies.mjs. Le missioni pescano da qui il proprio presidio: il presidio
 // di default schiera WASP / HELIX SEC / CUSTODE, l'HELIX SEGUGIO entra dai picchi d'allarme,
 // l'HELIX GOLIATH è la riserva pesante e va schierato solo dalle missioni che lo richiamano in
-// `layout.garrison`. INTEGRITÀ (hp) = vita. DANNO (damage) = colpo dell'arma, sempre a segno.
-const ENEMY_ROSTER = [
-  { key:'drone',  tier:1, name:'WASP D-2',      type:'DRONE',      hp:24,  damage:13, threat:2,
-    note:'Micro-drone da ricognizione. Fragile e leggero: cade in due colpi, ma marca la squadra.',
-    deploy:'Presidio leggero ai nodi di rete.' },
-  { key:'hunter', tier:2, name:'HELIX SEGUGIO', type:'CACCIATORE', hp:32,  damage:15, threat:3,
-    note:'Unità mobile da inseguimento. Poca corazza, ma una volta agganciata non molla la traccia.',
-    deploy:'Entra da sola a ogni soglia d’allarme (25→75%) e parte subito a caccia.' },
-  { key:'sec',    tier:3, name:'HELIX SEC-4',   type:'FANTERIA',   hp:40,  damage:16, threat:3,
-    note:'Guardia di fanteria standard della torre: il presidio più comune e più prevedibile.',
-    deploy:'Presidio ai nodi; una in più sullo snodo centrale con squadre da 4+.' },
-  { key:'elite',  tier:4, name:'CUSTODE K-9',   type:'ÉLITE',      hp:120, damage:22, threat:5,
-    note:'Presidio corazzato dell’obiettivo. Molta integrità e colpo duro: va logorato in gruppo.',
-    deploy:'Sempre di guardia alla teca / nucleo / cella.' },
-  { key:'titan',  tier:5, name:'HELIX GOLIATH', type:'PESANTE',    hp:210, damage:30, threat:6,
-    note:'Blindato d’assalto. La minaccia più alta del settore: da aggirare, non da affrontare a viso aperto.',
-    deploy:'Riserva pesante: schierato solo dalle missioni che lo richiamano nel presidio.' },
-];
+// `layout.garrison`.
 const ENEMY_KINDS = Object.fromEntries(ENEMY_ROSTER.map((e) => [e.key, e]));
 function spawnEnemy(kind, room, index, hpScale, dmgScale) {
   const base = ENEMY_KINDS[kind];
@@ -131,16 +115,6 @@ function buildEnemies(layout, rooms, hpScale, dmgScale, squadSize) {
   if (hub && squadSize >= 4) list.push(spawnEnemy('sec', hub.id, layout.nodeRooms.length + 2, hpScale, dmgScale));
   return list;
 }
-
-// DANNO (dmg) = colpo fisso dell'arma, sempre a segno. INTEGRITÀ (maxHp) = unica difesa.
-const templates = [
-  { id:'ghost', callsign:'VEX', role:'GHOST', specialty:'Infiltrazione', color:'#62f4ff', maxHp:95, dmg:11, focus:7, weapon:'Monofilo VX', ability:'Passo fantasma', abilityText:'Colpo netto a un ostile nella tua stanza: 26 danni.' },
-  { id:'chrome', callsign:'ROOK', role:'CHROME', specialty:'Assalto pesante', color:'#ffcf4a', maxHp:150, dmg:16, focus:4, weapon:'Mastiff AR', ability:'Sovraccarico cromo', abilityText:'Danno massiccio a un ostile nella tua stanza: 40, il più alto del gioco.' },
-  { id:'cipher', callsign:'NYX', role:'CIPHER', specialty:'Guerra di rete', color:'#b895ff', maxHp:80, dmg:7, focus:10, weapon:'Pistola ad arco', ability:'Zero-day', abilityText:'Viola a distanza un nodo nella tua stanza o in una collegata e brucia i droni vicini (25 danni).' },
-  { id:'ripper', callsign:'KORA', role:'RIPPER', specialty:'Supporto biotecnico', color:'#7dff9b', maxHp:105, dmg:8, focus:8, weapon:'Needler', ability:'Protocollo Lazarus', abilityText:'Cura e rianima tutti i compagni presenti nella tua stanza.' },
-  { id:'face', callsign:'ECHO', role:'FACE', specialty:'Manipolazione', color:'#ff73ca', maxHp:90, dmg:9, focus:9, weapon:'Kestrel silenziata', ability:'Identità sintetica', abilityText:'Abbassa l’allarme di tutto il livello e distrae gli ostili nella tua stanza.' },
-  { id:'driver', callsign:'JAX', role:'DRIVER', specialty:'Droni e mobilità', color:'#ff8b4a', maxHp:105, dmg:10, focus:6, weapon:'Vector SMG', ability:'Sciame MANTA', abilityText:'Colpisce due ostili nella tua stanza o in una collegata (18 danni ciascuno).' },
-];
 
 // CATALOGO MISSIONI
 // Ogni missione riusa lo stesso motore (nodi, allarme, combattimento) e differisce solo per

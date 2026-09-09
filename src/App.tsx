@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlertTriangle, ArrowRight, BookOpen, Briefcase, Check, ChevronLeft, ChevronRight, CircleDot,
+  Activity, AlertTriangle, ArrowRight, BookOpen, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDot,
   Crosshair, Cpu, DoorOpen, Footprints, HeartPulse, LockKeyhole, LogIn, Map as MapIcon, MapPin, Radio, RotateCw,
   Info, ShieldAlert, Skull, Smartphone, Sparkles, Swords, Target, Timer,
   Users, Wifi, WifiOff, X, Zap,
@@ -121,6 +121,40 @@ function useSnapshot(code?:string){
   return {snapshot,setSnapshot,offline};
 }
 
+// Selettore scheda personaggio: un bottone che apre un menu a tendina in stile plancia
+// (il <select> nativo del browser resta bianco e non si può ritingere). Stessa logica di
+// prima — un personaggio già assegnato a un altro slot resta bloccato — ma qui lo segnala
+// un piccolo indicatore rosso a sinistra invece del solo grigiore del <option disabled>.
+function CharacterPicker({options,value,isTaken,onSelect}:{options:Template[];value:string;isTaken:(id:string)=>boolean;onSelect:(id:string)=>void}){
+  const [open,setOpen]=useState(false);
+  const wrapRef=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    if(!open)return;
+    const onDocClick=(e:MouseEvent)=>{if(wrapRef.current&&!wrapRef.current.contains(e.target as Node))setOpen(false);};
+    document.addEventListener('mousedown',onDocClick);
+    return ()=>document.removeEventListener('mousedown',onDocClick);
+  },[open]);
+  const current=options.find((o)=>o.id===value);
+  return <div className="char-picker" ref={wrapRef}>
+    <button type="button" className="char-picker-btn" onClick={(e)=>{e.stopPropagation();setOpen((o)=>!o);}}>
+      <span>{current?`${current.callsign} // ${current.role}`:'SELEZIONA PERSONAGGIO'}</span>
+      <ChevronDown size={14}/>
+    </button>
+    {open&&<ul className="char-picker-menu" onClick={(e)=>e.stopPropagation()}>
+      <li><button type="button" className="unset" onClick={()=>{onSelect('');setOpen(false);}}><span>— SCEGLI SCHEDA —</span></button></li>
+      {options.map((option)=>{
+        const taken=isTaken(option.id);
+        return <li key={option.id}>
+          <button type="button" disabled={taken} className={taken?'taken':''} onClick={()=>{onSelect(option.id);setOpen(false);}}>
+            {taken&&<i className="char-picker-flag" aria-hidden="true"/>}
+            <span>{option.callsign} // {option.role}</span>
+          </button>
+        </li>;
+      })}
+    </ul>}
+  </div>;
+}
+
 function Setup({templates,missions,enemyRoster,onCreated}:{templates:Template[];missions:MissionMeta[];enemyRoster:EnemyRosterEntry[];onCreated:(g:Game)=>void}){
   const [count,setCount]=useState(3);
   // Nessuna scheda pre-assegnata: ogni slot parte vuoto e va scelto a mano prima di creare il canale.
@@ -168,7 +202,7 @@ function Setup({templates,missions,enemyRoster,onCreated}:{templates:Template[];
           return <article className={`slot ${t&&selected===t.id?'selected':''} ${t?'':'unset'}`} style={{'--accent':t?.color||'#5b7873'} as React.CSSProperties} key={index}>
             <span className="slot-num">0{index+1}</span><span className="avatar">{t?<OpIcon characterId={t.id} alt={t.callsign}/>:'—'}</span>
             <label><small>NOME GIOCATORE</small><input value={pick.name} maxLength={14} onChange={(e)=>update(index,'name',e.target.value)} onClick={(e)=>e.stopPropagation()}/></label>
-            <label><small>SCHEDA PERSONAGGIO</small><select value={pick.characterId} onChange={(e)=>{update(index,'characterId',e.target.value);if(e.target.value)setSelected(e.target.value);}} onClick={(e)=>e.stopPropagation()}><option value="">— SCEGLI SCHEDA —</option>{templates.map((option)=><option disabled={picks.slice(0,count).some((p,i)=>i!==index&&p.characterId===option.id)} value={option.id} key={option.id}>{option.callsign} // {option.role}</option>)}</select></label>
+            <label><small>SCHEDA PERSONAGGIO</small><CharacterPicker options={templates} value={pick.characterId} isTaken={(id)=>picks.slice(0,count).some((p,i)=>i!==index&&p.characterId===id)} onSelect={(id)=>{update(index,'characterId',id);if(id)setSelected(id);}}/></label>
             <ChevronRight size={18}/>
           </article>})}</div>
       </section>
