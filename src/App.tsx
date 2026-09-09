@@ -18,7 +18,7 @@ const FoeIcon=({kind,alt}:{kind:string;alt:string})=><img className="unit-icon" 
 
 type Template = { id:string; callsign:string; role:string; specialty:string; color:string; maxHp:number; dmg:number; focus:number; weapon:string; ability:string; abilityText:string };
 type PlayerAction = { type:string; targetId?:string|null; roomId?:string|null };
-type Player = Template & { name:string; characterId:string; hp:number; maxFocus:number; room:string; action:null|PlayerAction; move:null|{roomId:string}; turnDone:boolean; deviceId:string|null; connected:boolean };
+type Player = Template & { name:string; characterId:string; hp:number; maxFocus:number; room:string; actions:PlayerAction[]; move:null|{roomId:string}; turnDone:boolean; deviceId:string|null; connected:boolean };
 type Enemy = { id:string; name:string; type:string; hp:number; maxHp:number; damage:number; threat:number; room:string; home:string; locked?:boolean; chasing?:string|null };
 type FeedItem = { time:string; tone:string; text:string };
 type Hostage = { room:string; holder:string|null; hp:number; maxHp:number; freed:boolean; delivered:boolean };
@@ -29,6 +29,7 @@ type Game ={ code:string; phase:'lobby'|'active'|'victory'|'defeat'; round:numbe
 type Snapshot = { game:Game|null; templates:Template[]; enemyRoster:EnemyRosterEntry[]; missions:MissionMeta[]; networkUrl:string; networkUrls?:string[] };
 
 const emptySnapshot:Snapshot={game:null,templates:[],enemyRoster:[],missions:[],networkUrl:''};
+const ACTIONS_PER_TURN=2; // azioni (non manovra) giocabili in un turno — deve restare allineato a server.mjs
 const enemyBadge=(enemy:Enemy)=>enemy.type==='DRONE'?'DR':enemy.type==='ÉLITE'?'EL':'SEC';
 const vaultNoun=(game:Game)=>game.missionId==='nucleo'?'NUCLEO':game.missionId==='ostaggio'?'CELLA':'TECA';
 const missionVaultNoun=(id:string)=>id==='nucleo'?'NUCLEO':id==='ostaggio'?'CELLA':'TECA';
@@ -275,7 +276,7 @@ function MissionBriefing({mission,onClose}:{mission:MissionMeta;onClose:()=>void
         <h3>La mappa</h3>
         <div className="briefing-map">
           <div className="briefing-grid">{cells.map((c,i)=><span key={i} className={c?`mark ${c==='◆'?'vault':c==='S'?'start':c==='N'?'node':'exit'}`:''}>{c&&<><b>{c}</b><i>{cellName(c)}</i></>}</span>)}</div>
-          <p className="briefing-legend"><MapIcon size={12}/> Solo la legenda degli elementi: la plancia della missione ha 12–13 stanze ed è sempre la stessa.</p>
+          <p className="briefing-legend"><MapIcon size={12}/> {mission.mapNote}</p>
         </div>
       </article>
       <footer className="manual-foot"><span>{num} — BRIEFING PRE-OPERAZIONE</span><button className="ghost-btn" onClick={onClose}>CHIUDI</button></footer>
@@ -353,6 +354,41 @@ function AlarmReadout({alarm}:{alarm:number}){
   </span>;
 }
 
+// Quando un HELIX SEGUGIO entra per una soglia d'allarme, confrontiamo la lista nemici a ogni
+// poll: gli id nuovi (non ancora visti su questo game.code) vanno in coda per l'avviso a tutto
+// schermo. Se ne entrano più di uno nello stesso round restano in coda e si mostrano uno alla volta.
+function useSpawnAlerts(game:Game){
+  const seen=useRef<{code:string;ids:Set<string>}>({code:'',ids:new Set()});
+  const [queue,setQueue]=useState<Enemy[]>([]);
+  useEffect(()=>{
+    const ids=new Set(game.enemies.map((e)=>e.id));
+    const known=seen.current;
+    if(known.code!==game.code){seen.current={code:game.code,ids};return;}
+    const fresh=game.enemies.filter((e)=>e.hp>0&&!known.ids.has(e.id));
+    seen.current={code:game.code,ids};
+    if(fresh.length&&game.phase==='active'){playSfx('alert');setQueue((q)=>[...q,...fresh]);}
+  },[game]);
+  return {current:queue[0]||null,dismiss:()=>setQueue((q)=>q.slice(1))};
+}
+
+// Avviso a tutto schermo: dimensione fissa (non si adatta al testo, è il testo che ci sta
+// dentro), foto del nemico grande, chiusura manuale o dopo qualche secondo.
+function SpawnAlert({enemy,roomName,onClose}:{enemy:Enemy;roomName:string;onClose:()=>void}){
+  useEffect(()=>{const t=setTimeout(onClose,6000);return()=>clearTimeout(t);},[enemy,onClose]);
+  useEffect(()=>{const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);},[onClose]);
+  return <div className="spawn-alert">
+    <button className="spawn-alert-scrim" aria-label="Chiudi avviso" onClick={onClose}/>
+    <div className="spawn-alert-card">
+      <div className="spawn-alert-head"><ShieldAlert size={18}/><span>TRACCIA HELIX // NUOVA MINACCIA RILEVATA</span></div>
+      <div className="spawn-alert-portrait"><FoeIcon kind={enemyKind(enemy.id)} alt={enemy.type}/></div>
+      <b className="spawn-alert-name">{enemy.name}</b>
+      <small className="spawn-alert-type">{enemy.type} · DANNO +{enemy.damage} · INTEGRITÀ {enemy.hp}/{enemy.maxHp}</small>
+      <p className="spawn-alert-text">Entra da <b>{enemy.room}</b> {roomName} e parte subito a caccia della squadra.</p>
+      <button className="primary-btn" data-sfx="confirm" onClick={onClose}>CONFERMATO <Check size={17}/></button>
+    </div>
+  </div>;
+}
+
 function Board({game,templates,missions,offline,onReset}:{game:Game;templates:Template[];missions:MissionMeta[];offline:boolean;onReset:()=>void}){
   const [settings,setSettings]=useState(false);
   const [briefing,setBriefing]=useState(false);
@@ -365,6 +401,7 @@ function Board({game,templates,missions,offline,onReset}:{game:Game;templates:Te
   const skipTurn=()=>{void api('/api/skipturn',{method:'POST'}).catch(()=>{});};
   const stage=missionStage(game);
   const cargo=cargoStatus(game);
+  const spawnAlert=useSpawnAlerts(game);
   // Un segnale acustico marca la fine dell'operazione, vittoria o sconfitta.
   useEffect(()=>{ if(game.phase==='victory')playSfx('confirm'); if(game.phase==='defeat')playSfx('alert'); },[game.phase]);
   const status=game.phase!=='active'?'OPERAZIONE CONCLUSA':`TURNO DI ${active?.name??'—'} · ${doneTurns}/${alivePlayers} TURNI CHIUSI`;
@@ -379,6 +416,7 @@ function Board({game,templates,missions,offline,onReset}:{game:Game;templates:Te
     {(game.phase==='victory'||game.phase==='defeat')&&<div className={`outcome ${game.phase}`}><div><small>OPERAZIONE CONCLUSA</small><h2>{game.phase==='victory'?'MNEMOSYNE È NOSTRO':'SQUADRA NEUTRALIZZATA'}</h2><p>{game.phase==='victory'?`Valigetta consegnata e squadra estratta da ${nameOf(game,game.dropRoom)}. La Helix non sa ancora cosa ha perso.`:'La Helix ha saturato il settore. Il segnale clandestino è perduto.'}</p><button className="primary-btn" data-sfx="confirm" onClick={onReset}>NUOVA OPERAZIONE <RotateCw size={17}/></button></div></div>}
     {briefing&&mission&&<MissionBriefing mission={mission} onClose={()=>setBriefing(false)}/>}
     {settings&&<Settings templates={templates} onReset={onReset} onClose={()=>setSettings(false)}/>}
+    {spawnAlert.current&&<SpawnAlert enemy={spawnAlert.current} roomName={roomOf(game,spawnAlert.current.room)?.name||''} onClose={spawnAlert.dismiss}/>}
   </main>;
 }
 
@@ -412,12 +450,14 @@ function PlayerConsole({game,templates,player,session,offline}:{game:Game;templa
   const [moving,setMoving]=useState(false);
   const room=roomOf(game,player.room);
   const exits=room?.links||[];
-  // Sistema a turni: la manovra si risolve subito, quindi l'azione ha sempre effetto nella
-  // stanza attuale. `myTurn` = è il tuo turno; `moved`/`acted` = cosa hai già fatto in questo turno.
+  // Sistema a turni: la manovra si risolve subito, quindi ogni azione ha sempre effetto nella
+  // stanza attuale. `myTurn` = è il tuo turno; `moved` = manovra fatta; `actedCount` = quante
+  // delle ACTIONS_PER_TURN azioni hai già giocato in questo turno.
   const myTurn=game.phase==='active'&&game.activePlayerId===player.id&&player.hp>0;
   const activeName=game.players.find((p)=>p.id===game.activePlayerId)?.name||'—';
   const moved=Boolean(player.move);
-  const acted=Boolean(player.action);
+  const actedCount=player.actions.length;
+  const acted=actedCount>=ACTIONS_PER_TURN;
   const doneTurns=game.players.filter((p)=>p.hp>0&&p.turnDone).length;
   const aliveCount=game.players.filter((p)=>p.hp>0).length;
   const actRoomId=player.room;
@@ -456,9 +496,9 @@ function PlayerConsole({game,templates,player,session,offline}:{game:Game;templa
         <div className="room-card"><small>STANZA ATTUALE</small><b>{player.room} // {room?.name}</b><div className="room-flags">{room?.start&&<i className="start">PARTENZA</i>}{room?.node&&<i className={game.nodes?.[player.room]?'done':'live'}>{game.nodes?.[player.room]?'NODO VIOLATO':'NODO ATTIVO'}</i>}{room?.vault&&<i className="vault">{game.vaultOpen?`${noun} APERTA`:`${noun} SIGILLATA`}</i>}{room?.exit&&<i className="exit">CONSEGNA</i>}{room?.cover&&<i className="cover">COPERTURA</i>}{room?.exposed&&<i className="exposed">ZONA ESPOSTA</i>}{carrying&&<i className="case">HAI LA VALIGETTA</i>}{escorting&&<i className="case">SCORTI L’INFORMATORE · {game.hostage.hp}/{game.hostage.maxHp} HP</i>}</div><p className={hostilesNow.length?'danger':''}>{hostilesNow.length?`${hostilesNow.length} OSTILI PRESENTI`:'NESSUN OSTILE'}{game.players.filter((p)=>p.id!==player.id&&p.room===player.room).length?` · ${game.players.filter((p)=>p.id!==player.id&&p.room===player.room).length} COMPAGNI`:' · SEI SOLO'}</p></div>
         <div className="vital-title"><Activity/> STATO BIOMETRICO</div><div className="big-vital"><span>INTEGRITÀ</span><b>{player.hp}<small>/{player.maxHp}</small></b><Meter value={player.hp} max={player.maxHp}/></div><div className="sub-vitals"><span><i>FOCUS</i><b>{player.focus}/{player.maxFocus}</b><Meter value={player.focus} max={player.maxFocus} tone="violet"/></span><span><i>DANNO ARMA</i><b>+{player.dmg}</b></span></div>
       </aside>
-      <section className="actions"><div className="action-head"><div><small>CONSOLE AZIONI</small><b>{!myTurn?'ATTENDI IL TURNO':acted?'AZIONE FATTA':moved?'MANOVRA FATTA':'TOCCA A TE'}</b></div><span>{doneTurns}/{aliveCount} TURNI CHIUSI</span></div>
+      <section className="actions"><div className="action-head"><div><small>CONSOLE AZIONI · {actedCount}/{ACTIONS_PER_TURN} AZIONI</small><b>{!myTurn?'ATTENDI IL TURNO':acted?'AZIONI FATTE':actedCount>0?`AZIONE ${actedCount}/${ACTIONS_PER_TURN} FATTA`:moved?'MANOVRA FATTA':'TOCCA A TE'}</b></div><span>{doneTurns}/{aliveCount} TURNI CHIUSI</span></div>
         {waiting?<div className="standby"><Radio/><b>IN ATTESA DELLA PLANCIA</b><span>Il computer avvierà l’operazione quando la squadra sarà pronta.</span></div>:game.phase!=='active'?<div className="standby"><Sparkles/><b>OPERAZIONE CONCLUSA</b><span>Controlla lo schermo principale.</span></div>:player.hp<=0?<div className="standby danger"><Skull/><b>FUORI COMBATTIMENTO</b><span>Sei a terra in {player.room}. Solo un compagno nella tua stessa stanza può rianimarti.</span></div>:!myTurn?<div className="standby"><Radio/><b>TURNO DI {activeName}</b><span>Aspetta la mano: giochi il tuo turno quando tocca a te nel giro.</span></div>:<>
-          <button className={`move-btn ${moved?'armed':''}`} data-sfx="confirm" onClick={()=>setMoving(true)} disabled={sending||!exits.length||moved}><Footprints/><span><b>{moved?`MANOVRA FATTA → ${player.move?.roomId}`:'MANOVRA'}</b><small>{moved?'Una sola manovra per turno · ora scegli l’azione o chiudi il turno':`${carrying?'Porti la valigetta · ':escorting?'Scorti l’informatore · ':''}Una manovra per turno · ${exits.join(' · ')}`}</small></span><ChevronRight/></button>
+          <button className={`move-btn ${moved?'armed':''}`} data-sfx="confirm" onClick={()=>setMoving(true)} disabled={sending||!exits.length||moved}><Footprints/><span><b>{moved?`MANOVRA FATTA → ${player.move?.roomId}`:'MANOVRA'}</b><small>{moved?`Una sola manovra per turno · ora scegli le azioni (${actedCount}/${ACTIONS_PER_TURN}) o chiudi il turno`:`${carrying?'Porti la valigetta · ':escorting?'Scorti l’informatore · ':''}Una manovra per turno · ${exits.join(' · ')}`}</small></span><ChevronRight/></button>
           {hostiles.length>0?<div className="target-row"><Target/><span>BERSAGLIO IN {actRoomId}</span><select value={selectedTarget} onChange={(e)=>setTarget(e.target.value)}>{hostiles.map((e)=><option value={e.id} key={e.id}>{e.name} // HP {e.hp} · DANNO +{e.damage}</option>)}</select></div>:<div className="target-row empty"><Target/><span>NESSUN OSTILE IN {actRoomId} — il fuoco è inutile finché non li raggiungi</span></div>}
           <div className="action-grid">
             <button data-sfx="confirm" onClick={()=>act('attack')} disabled={turnBlocked||!hostiles.length} title={hostiles.length?'':'Nessun ostile nella tua stanza'}><Swords/><span><b>FUOCO +{player.dmg}</b><small>{hostiles.length?'Colpisci un ostile qui':'Nessun ostile qui'}</small></span><kbd>01</kbd></button>
@@ -466,7 +506,7 @@ function PlayerConsole({game,templates,player,session,offline}:{game:Game;templa
             <button data-sfx="confirm" onClick={()=>act('heal')} disabled={turnBlocked||player.focus<2}><HeartPulse/><span><b>{downedHere?'RIANIMAZIONE':'RIPRISTINO'}</b><small>{downedHere?`Rimette in piedi ${downedHere.name}`:'Cura chi è nella tua stanza'}</small></span><kbd>03</kbd></button>
             <button className="grab-action" data-sfx="confirm" onClick={fifthAction.onClick} disabled={fifthAction.disabled}>{fifthAction.icon}<span><b>{fifthAction.label}</b><small>{fifthAction.sub}</small></span><kbd>04</kbd></button>
           </div>
-          <button className="endturn-btn" data-sfx="confirm" onClick={endTurn} disabled={sending}><Check size={15}/> FINE TURNO{!moved&&!acted?' (salta)':''} <ChevronRight size={15}/></button>
+          <button className="endturn-btn" data-sfx="confirm" onClick={endTurn} disabled={sending}><Check size={15}/> FINE TURNO{!moved&&!actedCount?' (salta)':''} <ChevronRight size={15}/></button>
         </>}
       </section>
       <aside className="loadout-panel"><div className="weapon-block"><Crosshair/><span><small>ARMA PRIMARIA</small><b>{player.weapon} +{player.dmg}</b></span></div><div className="ability-panel"><Zap/><small>ABILITÀ ESCLUSIVA // 3 FOCUS</small><h2>{player.ability}</h2><p>{player.abilityText}</p><button disabled={abilityBlocked} data-sfx="confirm" onClick={()=>act('ability')}>ATTIVA <ChevronRight/></button></div><div className="personal-objective"><LockKeyhole/><div><small>{stage.label}</small><p>{stage.text}</p></div></div></aside>

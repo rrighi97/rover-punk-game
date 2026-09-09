@@ -134,17 +134,17 @@ export const chapterList=(templates:Template[])=>[
       <h3>Il round a turni</h3>
       <p>La partita procede a <b>round</b>, e ogni round è un <b>giro di turni</b>: gli operativi giocano <b>uno alla volta</b>, sempre nello stesso ordine, in cerchio, ripartendo ogni volta dal primo. La plancia mostra bene in alto <b>di chi è il turno</b>.</p>
       <ol className="manual-steps">
-        <li>Tocca a un operativo: sul suo telefono può fare <b>una manovra</b> (spostarsi di una stanza) <b>e una azione</b>, nell’ordine che preferisce — prima l’azione e poi la manovra, o viceversa. Può anche fare solo una delle due, o nessuna.</li>
+        <li>Tocca a un operativo: sul suo telefono può fare <b>una manovra</b> (spostarsi di una stanza) <b>e fino a due azioni</b>, nell’ordine che preferisce — manovra e azioni si possono alternare come vuoi. Può anche fare solo una parte del suo turno, o niente.</li>
         <li>Ogni scelta ha <b>effetto immediato</b>: il nemico colpito, la cura, il nodo violato valgono subito, prima che tocchi al prossimo.</li>
         <li>Quando ha finito preme <b>FINE TURNO</b> e la mano passa all’operativo successivo del giro.</li>
         <li><b>RISPOSTA HELIX:</b> quando <b>tutti</b> hanno chiuso il turno rispondono i nemici vivi. Colpiscono chi è nella loro stanza; quelli già ingaggiati vi inseguono di una stanza.</li>
         <li>Si aggiornano allarme, focus e stato del carico; riparte il giro dal primo operativo.</li>
       </ol>
-      <h3>Manovra e azione nello stesso turno</h3>
+      <h3>Manovra e azioni nello stesso turno</h3>
       <ul>
-        <li>La <b>MANOVRA è gratuita</b> e non consuma l’azione: nel tuo turno puoi spostarti di una stanza <b>e</b> fare qualcosa.</li>
+        <li>La <b>MANOVRA è gratuita</b> e non consuma azioni: nel tuo turno puoi spostarti di una stanza <b>e</b> fare qualcosa.</li>
         <li>Puoi scegliere l’ordine: entrare in una stanza e poi violarne il nodo, oppure sparare e poi sganciarti.</li>
-        <li>Una sola manovra e una sola azione per turno. Quello che fai si risolve subito, non si può disfare.</li>
+        <li>Una sola manovra e <b>fino a due azioni</b> per turno, in qualsiasi combinazione (anche la stessa azione due volte, se ha ancora senso). Quello che fai si risolve subito, non si può disfare.</li>
       </ul>
       <h3>Il tempo</h3>
       <ul>
@@ -171,9 +171,9 @@ export const chapterList=(templates:Template[])=>[
     id:'plancia', label:'LA PLANCIA', icon:<Map size={15}/>,
     content:<>
       <h2>La plancia della missione</h2>
-      <p>Ogni missione ha la <b>sua plancia fissa</b>: stessa mappa a ogni partita. Nomi delle stanze, porte, posizione di teca, nodi e punto di consegna sono quelli mostrati nel briefing. Cambiare missione cambia la mappa.</p>
+      <p>Ogni missione ha il <b>suo tema</b> (nomi delle stanze, presidio, obiettivo), ma la plancia viene disegnata da zero <b>a ogni partita</b>: anche rigiocando la stessa missione la mappa non è mai identica. Porte, posizione di teca, nodi e punto di consegna cambiano di conseguenza; il briefing mostra solo la legenda degli elementi, non la loro posizione reale.</p>
       <h3>Stanze quadrate e rettangolari</h3>
-      <p>Il livello è una griglia di celle. Una stanza occupa <b>una cella</b> (quadrata) oppure <b>due celle adiacenti</b> (rettangolare, quindi <b>esattamente il doppio</b> di una quadrata), in orizzontale o in verticale. Una plancia ha <b>12–13 stanze</b>, di cui alcune rettangolari.</p>
+      <p>Il livello è una griglia di celle. Una stanza occupa <b>una cella</b> (quadrata) oppure <b>due celle adiacenti</b> (rettangolare, quindi <b>esattamente il doppio</b> di una quadrata), in orizzontale o in verticale. Una plancia ha in genere <b>10–14 stanze</b>, di cui alcune rettangolari: il numero esatto varia a ogni partita.</p>
       <p>La dimensione è puramente architettonica: una stanza grande <b>non</b> ospita più gente né dà bonus. Serve a rendere la pianta credibile e a spostare le distanze.</p>
       <h3>Vicine non vuol dire collegate</h3>
       <p>Questa è la regola che rende la plancia un labirinto: <b>due stanze possono condividere un muro e non avere nessuna porta</b>. Sulla plancia si vede a colpo d’occhio, perché fra loro non c’è nessun corridoio disegnato.</p>
@@ -205,7 +205,7 @@ export const chapterList=(templates:Template[])=>[
       </ul>
       <h3>Muoversi</h3>
       <ul>
-        <li>La <b>MANOVRA</b> è gratuita: non consuma l’azione del round. Ti sposti <b>e</b> agisci, dalla stanza in cui arrivi.</li>
+        <li>La <b>MANOVRA</b> è gratuita: non consuma le azioni del round. Ti sposti <b>e</b> agisci, dalla stanza in cui arrivi.</li>
         <li>Puoi entrare solo in una stanza <b>collegata da una porta</b>: una porta per round, niente scorciatoie.</li>
         <li><b>Sganciarsi costa.</b> Se lasci una stanza con ostili dentro, subisci il <b>60% del loro danno</b> mentre volti le spalle.</li>
         <li>Le manovre si risolvono <b>prima</b> di tutto il resto: chi entra in una stanza può essere colpito lì nello stesso round.</li>
@@ -217,9 +217,9 @@ export const chapterList=(templates:Template[])=>[
     id:'azioni', label:'LE AZIONI', icon:<Swords size={15}/>,
     content:<>
       <h2>Le azioni</h2>
-      <p>Nel tuo turno puoi fare <b>una manovra</b> e <b>una</b> di queste azioni. Quasi tutte funzionano <b>solo dentro la stanza che occupi</b>: la console blocca da sola i pulsanti che in quel momento non hanno senso e ti dice perché.</p>
+      <p>Nel tuo turno puoi fare <b>una manovra</b> e <b>fino a due</b> di queste azioni, in qualsiasi combinazione. Quasi tutte funzionano <b>solo dentro la stanza che occupi</b>: la console blocca da sola i pulsanti che in quel momento non hanno senso e ti dice perché.</p>
       <div className="manual-actions">
-        <article><span><Footprints size={19}/></span><div><b>00 · MANOVRA</b><small>Costo: gratis · non consuma l’azione del round</small><p>Ti sposti in una stanza <b>collegata da una porta</b> e poi agisci da lì. Tocca la stanza sulla mappa del telefono. Se lasci una stanza presidiata subisci il <b>60% del danno</b> dell’ostile mentre volti le spalle.</p></div></article>
+        <article><span><Footprints size={19}/></span><div><b>00 · MANOVRA</b><small>Costo: gratis · non consuma le azioni del round</small><p>Ti sposti in una stanza <b>collegata da una porta</b> e poi agisci da lì. Tocca la stanza sulla mappa del telefono. Se lasci una stanza presidiata subisci il <b>60% del danno</b> dell’ostile mentre volti le spalle.</p></div></article>
         <article><span><Swords size={19}/></span><div><b>01 · FUOCO</b><small>Costo: gratis · serve un ostile nella tua stanza</small><p>Attacchi un bersaglio <b>presente dove sei tu</b>. Danno = <b>il valore della tua arma</b> (es. <Chip>+7</Chip>), fisso e sempre a segno.</p></div></article>
         <article><span><Cpu size={19}/></span><div><b>02 · INTRUSIONE</b><small>Costo: gratis · serve un nodo nella tua stanza</small><p>Violi il nodo di <b>questa</b> stanza: <b>+1 nodo</b>. Colpisce anche un drone presente per <Chip>10</Chip>. Servono <b>2 nodi su 3</b> per aprire la teca.</p></div></article>
         <article><span><HeartPulse size={19}/></span><div><b>03 · RIPRISTINO</b><small>Costo: 2 FOCUS · agisce solo nella tua stanza</small><p>Se c’è un compagno a terra <b>nella tua stanza</b>, lo <b>rianima</b> al 25%. Altrimenti cura il compagno più ferito <b>presente lì con te</b> di <Chip>12</Chip>. Non si cura a distanza.</p></div></article>
@@ -372,7 +372,7 @@ export const chapterList=(templates:Template[])=>[
         <dt>La console del telefono è illeggibile</dt>
         <dd>Ruota il dispositivo in <b>orizzontale</b> e disattiva il blocco rotazione.</dd>
         <dt>Vogliamo una mappa diversa</dt>
-        <dd>Ogni missione ha la sua plancia fissa: dalla plancia premi <b>TERMINA</b> (o <b>RICOMPONI SQUADRA</b> dalla lobby), crea un nuovo canale e scegli un’altra missione.</dd>
+        <dd>Basta una nuova operazione: la plancia si ridisegna da zero a ogni partita, anche restando sulla stessa missione. Dalla plancia premi <b>TERMINA</b> (o <b>RICOMPONI SQUADRA</b> dalla lobby) e crea un nuovo canale.</dd>
       </dl>
     </>,
   },

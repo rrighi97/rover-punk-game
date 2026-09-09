@@ -73,7 +73,7 @@ export default function Settings({onClose,templates=[],onReset,database}:{onClos
   const dbMode=tab==='database';
   return <div className="settings-overlay">
     <button className="settings-scrim" aria-label="Chiudi impostazioni" onClick={close}/>
-    <section className={`settings-card panel ${manualMode||dbMode?'wide':''}`}>
+    <section className="settings-card panel">
       <header className="settings-head">
         <div><small>CONFIGURAZIONE SISTEMA</small><b>IMPOSTAZIONI</b></div>
         <button className="icon-btn" data-sfx="back" onClick={close}><X size={18}/></button>
