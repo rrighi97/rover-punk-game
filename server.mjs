@@ -10,69 +10,37 @@ const DATA_FILE = new URL('./data/game-state.json', import.meta.url);
 
 // Finestra entro cui un telefono è considerato collegato (3 ping persi).
 const LINK_TIMEOUT = 15000;
-// Un giocatore che mette giù il telefono per un attimo resta parte del round: la squadra
-// lo aspetta fino a questa soglia invece di risolvere il turno senza di lui.
-const LINK_GRACE = 45000;
 
 // TARATURA UNICA
 // Non esistono più livelli di minaccia selezionabili: ROVERPUNK ha una sola difficoltà,
 // pensata per essere dura. Ogni costante qui sotto è una leva della pressione sulla squadra.
-const ROUND_SECONDS = 60;          // tempo massimo per decidere
+// Il round è a TURNI: ogni operativo gioca il suo turno singolarmente, nell'ordine fisso di
+// `turnOrder` (sempre lo stesso, in cerchio, si riparte sempre dal primo). Quando tutti hanno
+// finito rispondono gli Helix. Nessun timer: se un telefono è offline il suo turno lo salta
+// la plancia con SALTA TURNO.
 const ALARM_START = 15;            // allarme iniziale
+// L'allarme ha una sola leva di salita: il respiro della torre, +3 a ogni round. Nessun
+// picco secco (stacco carico, PURGA, Sovraccarico cromo, sganciamento) e nessuna pressione
+// da contatto/zona esposta/carico. L'unica cosa che lo abbassa è l'Identità sintetica di ECHO.
 const ALARM_PER_ROUND = 3;         // pressione base di ogni round
-const ALARM_PER_CONTACT = 1;       // ogni ostile che a fine round è nella vostra stanza
-const ALARM_PER_EXPOSED = 1;       // per operativo fermo in zona esposta
-const ALARM_CARRY = 1;             // la valigetta emette: costa allarme ogni round
-const ALARM_ON_GRAB = 10;          // picco nel momento in cui viene staccata dalla teca
-const ALARM_ON_DISENGAGE = 3;      // sganciarsi da una stanza presidiata (una volta per round)
-const ALARM_FACE_RELIEF = 16;      // Identità sintetica del FACE
-const ALARM_CHROME_SPIKE = 9;      // Sovraccarico cromo
-const LOCKDOWN_ALARM = 85;         // oltre questa soglia la torre sveglia tutti
-// Sulla plancia procedurale (fino a 16 stanze) più operativi si dividono su più fronti in
-// parallelo: senza un tetto, ogni stanza in contatto pesa a testa e le squadre numerose
-// pagherebbero più allarme delle piccole invece di beneficiare del numero. Il conteggio dei
-// contatti che pesa sull'allarme è quindi limitato, non lineare.
-const ALARM_CONTACT_CAP = 3;
+const ALARM_FACE_RELIEF = 5;       // Identità sintetica del FACE
+const LOCKDOWN_ALARM = 80;         // oltre questa soglia la torre allerta ogni presidio: tutti convergono sui Player
+const ALARM_SPAWN_THRESHOLDS = [25, 35, 45, 55, 65, 75]; // a ogni soglia una nuova unità entra in una stanza a caso e parte a caccia
 const NODES_REQUIRED = 2;          // nodi da violare per sbloccare la teca
-const SHIELD_DECAY = 4;
 const REVIVE_RATIO = 0.25;
 const LAZARUS_RATIO = 0.4;
 
-// MISSIONE 02 // GHOST PROTOCOL
-const GHOST_PURGE_ALARM_SPIKE = 12; // picco quando la PURGA viene lanciata
-const GHOST_ALARM_PER_ROUND_BONUS = 1; // pressione extra ogni round dopo la purga
-
 // MISSIONE 03 // OSTAGGIO
-const ALARM_ON_FREE = 10;          // picco quando l'informatore viene liberato
 const HOSTAGE_MAX_HP = 70;
 const HOSTAGE_UNESCORTED_DAMAGE = 18; // danno subito se lasciato solo con ostili
 
-// GENERAZIONE PROCEDURALE DELLA PLANCIA
-// La mappa non è più fissa: a ogni partita viene disegnata da zero su una griglia di celle.
-// Una stanza occupa una cella (quadrata) oppure due celle adiacenti (rettangolare, quindi
-// esattamente il doppio). Le stanze fisicamente vicine NON sono automaticamente collegate:
-// un albero di copertura garantisce che tutto sia raggiungibile, poi solo una parte dei muri
-// restanti diventa una porta. Il resto sono pareti cieche.
-const GRID_COLS = 4;
-const GRID_ROWS = 4;
-const DOUBLE_ROOM_CHANCE = 0.6;    // quanto spesso una stanza diventa rettangolare
-const EXTRA_DOOR_CHANCE = 0.28;    // quanti muri in più (oltre all'albero) diventano porte
-
-const ROOM_NAMES = [
-  'CONDOTTI','SERVER FARM','SICUREZZA','ACCESSO','NEXUS','LAB NERO','GARAGE','ARCHIVIO',
-  'PONTE','MENSA','DEPOSITO','CELLE','ATRIO','TERMICA','OFFICINA','CRIOSALA','HANGAR',
-  'SALA POMPE','TORRE RADIO','MAGAZZINO','CAMERA BIANCA','SMISTAMENTO',
-];
-
-function shuffle(list) {
-  const out = [...list];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-const pick = (list) => list[Math.floor(Math.random() * list.length)];
+// PLANCE DELLE MISSIONI
+// La mappa non è procedurale: ogni missione ha una plancia fissa, scritta a mano in
+// `MISSIONS[...].layout` (stanze, porte, ruoli tattici). `createGame` la clona così com'è —
+// nessuna generazione casuale all'avvio della partita. Per cambiare una mappa si edita il
+// layout della missione. Le stanze sono su una griglia di celle: una stanza occupa una cella
+// (quadrata) o due celle adiacenti (rettangolare). Stanze vicine non sono per forza
+// collegate: contano solo le porte elencate in `links`.
 
 // Distanze in numero di porte da una stanza a tutte le altre (BFS sul grafo delle porte).
 function distanceMap(rooms, origin) {
@@ -88,129 +56,70 @@ function distanceMap(rooms, origin) {
   return dist;
 }
 
-// Passo 1: riempie la griglia con stanze da 1 o 2 celle, senza buchi e senza sovrapposizioni.
-function fillGrid() {
-  const grid = Array.from({ length: GRID_ROWS + 2 }, () => Array(GRID_COLS + 2).fill(null));
-  const cells = [];
-  for (let row = 1; row <= GRID_ROWS; row++) for (let col = 1; col <= GRID_COLS; col++) cells.push({ col, row });
-  const draft = [];
-  for (const { col, row } of shuffle(cells)) {
-    if (grid[row][col]) continue;
-    const key = `k${draft.length}`;
-    const options = [];
-    if (col + 1 <= GRID_COLS && !grid[row][col + 1]) options.push({ w: 2, h: 1 });
-    if (row + 1 <= GRID_ROWS && !grid[row + 1][col]) options.push({ w: 1, h: 2 });
-    const shape = options.length && Math.random() < DOUBLE_ROOM_CHANCE ? pick(options) : { w: 1, h: 1 };
-    for (let dr = 0; dr < shape.h; dr++) for (let dc = 0; dc < shape.w; dc++) grid[row + dr][col + dc] = key;
-    draft.push({ key, col, row, w: shape.w, h: shape.h });
-  }
-  return { grid, draft };
-}
-
-// Passo 2: due stanze che condividono un muro sono "vicine", ma non ancora collegate.
-function neighbours(grid, draft) {
-  const adjacency = new Map(draft.map((r) => [r.key, new Set()]));
-  for (let row = 1; row <= GRID_ROWS; row++) for (let col = 1; col <= GRID_COLS; col++) {
-    const here = grid[row][col];
-    for (const [dc, dr] of [[1, 0], [0, 1]]) {
-      const other = grid[row + dr]?.[col + dc];
-      if (!other || other === here) continue;
-      adjacency.get(here).add(other);
-      adjacency.get(other).add(here);
-    }
-  }
-  return adjacency;
-}
-
-// Passo 3: albero di copertura casuale (tutto raggiungibile) + qualche porta extra.
-// Tutti i muri non estratti restano chiusi: da qui nascono le stanze vicine ma separate.
-function carveDoors(draft, adjacency) {
-  const keys = draft.map((r) => r.key);
-  const doors = new Set();
-  const addDoor = (a, b) => doors.add([a, b].sort().join('|'));
-  const inTree = new Set([pick(keys)]);
-  while (inTree.size < keys.length) {
-    const options = [];
-    for (const a of inTree) for (const b of adjacency.get(a)) if (!inTree.has(b)) options.push([a, b]);
-    if (!options.length) break;
-    const [a, b] = pick(options);
-    addDoor(a, b);
-    inTree.add(b);
-  }
-  for (const [a, set] of adjacency) for (const b of set) {
-    if (a < b && Math.random() < EXTRA_DOOR_CHANCE) addDoor(a, b);
-  }
-  return doors;
-}
-
-// Passo 4: identità delle stanze e assegnazione dei ruoli tattici (partenza, teca, consegna,
-// nodi, coperture, zone esposte). Teca e consegna finiscono sempre agli antipodi del percorso.
-function buildMap() {
-  const { grid, draft } = fillGrid();
-  const adjacency = neighbours(grid, draft);
-  const doors = carveDoors(draft, adjacency);
-
-  const ordered = [...draft].sort((a, b) => a.row - b.row || a.col - b.col);
-  const names = shuffle(ROOM_NAMES);
-  const rooms = ordered.map((r, i) => ({
-    id: `${'ABCDEF'[r.col - 1]}${String(i + 1).padStart(2, '0')}`,
-    name: names[i % names.length],
-    col: r.col, row: r.row, w: r.w, h: r.h, links: [],
-  }));
-  const byKey = new Map(ordered.map((r, i) => [r.key, rooms[i]]));
-  for (const door of doors) {
-    const [a, b] = door.split('|');
-    const ra = byKey.get(a), rb = byKey.get(b);
-    if (!ra || !rb) continue;
-    ra.links.push(rb.id);
-    rb.links.push(ra.id);
-  }
-
-  // La squadra entra da un lato della struttura, mai dal centro.
-  const border = rooms.filter((r) => r.col === 1);
-  const start = (border.length ? border : rooms).sort((a, b) => b.row - a.row)[0];
-  start.start = true;
-  const fromStart = distanceMap(rooms, start.id);
-  const reachable = rooms.filter((r) => fromStart[r.id] !== undefined);
-
-  // La teca è la stanza più lontana dall'ingresso: bisogna attraversare il livello.
-  const vault = [...reachable].sort((a, b) => (fromStart[b.id] || 0) - (fromStart[a.id] || 0))[0];
-  vault.vault = true;
-  const fromVault = distanceMap(rooms, vault.id);
-  // Il punto di consegna è lontano dalla teca: recuperare non basta, bisogna tornare indietro.
-  const drop = reachable.filter((r) => r !== vault && r !== start)
-    .sort((a, b) => (fromVault[b.id] || 0) - (fromVault[a.id] || 0))[0] || start;
-  drop.exit = true;
-
-  const rest = shuffle(reachable.filter((r) => !r.start && !r.vault && !r.exit));
-  for (const room of rest.slice(0, 3)) room.node = true;
-  const leftovers = rest.slice(3).sort((a, b) => b.links.length - a.links.length);
-  for (const room of leftovers.slice(0, 2)) room.exposed = true;
-  for (const room of leftovers.slice(2)) room.cover = true;
-
-  return { rooms, startRoom: start.id, vaultRoom: vault.id, dropRoom: drop.id, nodeRooms: rooms.filter((r) => r.node).map((r) => r.id) };
-}
-
-const ENEMY_KINDS = {
-  elite: { name: 'CUSTODE K-9', type: 'ÉLITE',     hp: 150, armor: 8, damage: 22, threat: 5 },
-  sec:   { name: 'HELIX SEC-4', type: 'FANTERIA',  hp: 84,  armor: 5, damage: 16, threat: 3 },
-  drone: { name: 'WASP D-2',    type: 'DRONE',     hp: 62,  armor: 3, damage: 13, threat: 2 },
-  razor: { name: 'HELIX RAZOR', type: 'FANTERIA',  hp: 78,  armor: 4, damage: 17, threat: 3 },
-};
+// DATABASE NEMICI — set base di 5 unità Helix in ordine CRESCENTE di forza (tier 1 = più
+// fragile, tier 5 = più letale). Le missioni pescano da qui il proprio presidio: il presidio
+// di default schiera WASP / HELIX SEC / CUSTODE, l'HELIX SEGUGIO entra dai picchi d'allarme,
+// l'HELIX GOLIATH è la riserva pesante e va schierato solo dalle missioni che lo richiamano in
+// `layout.garrison`. INTEGRITÀ (hp) = vita. DANNO (damage) = colpo dell'arma, sempre a segno.
+const ENEMY_ROSTER = [
+  { key:'drone',  tier:1, name:'WASP D-2',      type:'DRONE',      hp:24,  damage:13, threat:2,
+    note:'Micro-drone da ricognizione. Fragile e leggero: cade in due colpi, ma marca la squadra.',
+    deploy:'Presidio leggero ai nodi di rete.' },
+  { key:'hunter', tier:2, name:'HELIX SEGUGIO', type:'CACCIATORE', hp:32,  damage:15, threat:3,
+    note:'Unità mobile da inseguimento. Poca corazza, ma una volta agganciata non molla la traccia.',
+    deploy:'Entra da sola a ogni soglia d’allarme (25→75%) e parte subito a caccia.' },
+  { key:'sec',    tier:3, name:'HELIX SEC-4',   type:'FANTERIA',   hp:40,  damage:16, threat:3,
+    note:'Guardia di fanteria standard della torre: il presidio più comune e più prevedibile.',
+    deploy:'Presidio ai nodi; una in più sullo snodo centrale con squadre da 4+.' },
+  { key:'elite',  tier:4, name:'CUSTODE K-9',   type:'ÉLITE',      hp:120, damage:22, threat:5,
+    note:'Presidio corazzato dell’obiettivo. Molta integrità e colpo duro: va logorato in gruppo.',
+    deploy:'Sempre di guardia alla teca / nucleo / cella.' },
+  { key:'titan',  tier:5, name:'HELIX GOLIATH', type:'PESANTE',    hp:210, damage:30, threat:6,
+    note:'Blindato d’assalto. La minaccia più alta del settore: da aggirare, non da affrontare a viso aperto.',
+    deploy:'Riserva pesante: schierato solo dalle missioni che lo richiamano nel presidio.' },
+];
+const ENEMY_KINDS = Object.fromEntries(ENEMY_ROSTER.map((e) => [e.key, e]));
 function spawnEnemy(kind, room, index, hpScale, dmgScale) {
   const base = ENEMY_KINDS[kind];
   const hp = Math.round(base.hp * hpScale);
   return {
     id: `${kind}-${index}`,
     name: index > 1 ? `${base.name}-${index}` : base.name,
-    type: base.type, hp, maxHp: hp, armor: base.armor,
+    type: base.type, hp, maxHp: hp,
     damage: Math.round(base.damage * dmgScale), threat: base.threat,
     room, home: room, locked: false, chasing: null,
   };
 }
 
+// Risolve il segnaposto stanza di uno slot di presidio: 'vault'/'drop'/'start', 'hub' (snodo
+// più trafficato), 'node:N' (N-esimo nodo) o un id di stanza esplicito.
+function garrisonRoom(at, layout, rooms) {
+  if (at === 'vault') return layout.vaultRoom;
+  if (at === 'drop') return layout.dropRoom;
+  if (at === 'start') return layout.startRoom;
+  if (at === 'hub') {
+    const hub = rooms.filter((r) => !r.start && !r.vault && !r.node)
+      .sort((a, b) => b.links.length - a.links.length)[0];
+    return hub?.id || layout.startRoom;
+  }
+  const node = /^node:(\d+)$/.exec(at || '');
+  if (node) return layout.nodeRooms[Number(node[1])] || layout.nodeRooms[0];
+  return at;
+}
+
 // I presidi stanno dove c'è qualcosa da difendere: teca e nodi. Nessuno pattuglia l'ingresso.
+// Se la missione dichiara `layout.garrison` (array di {kind, at, minSquad?}) si schiera quello,
+// pescando le unità dal DATABASE NEMICI (ENEMY_ROSTER); altrimenti vale il presidio di default.
 function buildEnemies(layout, rooms, hpScale, dmgScale, squadSize) {
+  if (Array.isArray(layout.garrison) && layout.garrison.length) {
+    const seen = {};
+    return layout.garrison
+      .filter((slot) => ENEMY_KINDS[slot.kind] && (!slot.minSquad || squadSize >= slot.minSquad))
+      .map((slot) => {
+        seen[slot.kind] = (seen[slot.kind] || 0) + 1;
+        return spawnEnemy(slot.kind, garrisonRoom(slot.at, layout, rooms), seen[slot.kind], hpScale, dmgScale);
+      });
+  }
   const list = [spawnEnemy('elite', layout.vaultRoom, 1, hpScale, dmgScale)];
   layout.nodeRooms.forEach((roomId, i) => {
     list.push(spawnEnemy(i % 2 === 0 ? 'sec' : 'drone', roomId, i + 1, hpScale, dmgScale));
@@ -223,26 +132,59 @@ function buildEnemies(layout, rooms, hpScale, dmgScale, squadSize) {
   return list;
 }
 
+// DANNO (dmg) = colpo fisso dell'arma, sempre a segno. INTEGRITÀ (maxHp) = unica difesa.
 const templates = [
-  { id:'ghost', callsign:'VEX', role:'GHOST', specialty:'Infiltrazione', color:'#62f4ff', stats:{corpo:5,riflessi:9,mente:7,presenza:4}, maxHp:82, armor:3, focus:7, weapon:'Monofilo VX', ability:'Passo fantasma', abilityText:'Colpisce un ostile nella tua stanza senza allarme e ottiene scudo 8.' },
-  { id:'chrome', callsign:'ROOK', role:'CHROME', specialty:'Assalto pesante', color:'#ffcf4a', stats:{corpo:9,riflessi:6,mente:3,presenza:4}, maxHp:112, armor:9, focus:4, weapon:'Mastiff AR', ability:'Sovraccarico cromo', abilityText:'Danno massiccio a un ostile nella tua stanza, ma aumenta l’allarme.' },
-  { id:'cipher', callsign:'NYX', role:'CIPHER', specialty:'Guerra di rete', color:'#b895ff', stats:{corpo:3,riflessi:6,mente:10,presenza:5}, maxHp:70, armor:2, focus:10, weapon:'Pistola ad arco', ability:'Zero-day', abilityText:'Viola a distanza un nodo nella tua stanza o in una collegata e brucia i droni vicini.' },
-  { id:'ripper', callsign:'KORA', role:'RIPPER', specialty:'Supporto biotecnico', color:'#7dff9b', stats:{corpo:6,riflessi:5,mente:8,presenza:5}, maxHp:88, armor:4, focus:8, weapon:'Needler', ability:'Protocollo Lazarus', abilityText:'Cura e rianima tutti i compagni presenti nella tua stanza.' },
-  { id:'face', callsign:'ECHO', role:'FACE', specialty:'Manipolazione', color:'#ff73ca', stats:{corpo:4,riflessi:6,mente:6,presenza:10}, maxHp:76, armor:3, focus:9, weapon:'Kestrel silenziata', ability:'Identità sintetica', abilityText:'Abbassa l’allarme di tutto il livello e distrae gli ostili nella tua stanza.' },
-  { id:'driver', callsign:'JAX', role:'DRIVER', specialty:'Droni e mobilità', color:'#ff8b4a', stats:{corpo:6,riflessi:9,mente:6,presenza:3}, maxHp:86, armor:4, focus:6, weapon:'Vector SMG', ability:'Sciame MANTA', abilityText:'Colpisce due ostili nella tua stanza o in una collegata.' },
+  { id:'ghost', callsign:'VEX', role:'GHOST', specialty:'Infiltrazione', color:'#62f4ff', maxHp:95, dmg:11, focus:7, weapon:'Monofilo VX', ability:'Passo fantasma', abilityText:'Colpo netto a un ostile nella tua stanza: 26 danni.' },
+  { id:'chrome', callsign:'ROOK', role:'CHROME', specialty:'Assalto pesante', color:'#ffcf4a', maxHp:150, dmg:16, focus:4, weapon:'Mastiff AR', ability:'Sovraccarico cromo', abilityText:'Danno massiccio a un ostile nella tua stanza: 40, il più alto del gioco.' },
+  { id:'cipher', callsign:'NYX', role:'CIPHER', specialty:'Guerra di rete', color:'#b895ff', maxHp:80, dmg:7, focus:10, weapon:'Pistola ad arco', ability:'Zero-day', abilityText:'Viola a distanza un nodo nella tua stanza o in una collegata e brucia i droni vicini (25 danni).' },
+  { id:'ripper', callsign:'KORA', role:'RIPPER', specialty:'Supporto biotecnico', color:'#7dff9b', maxHp:105, dmg:8, focus:8, weapon:'Needler', ability:'Protocollo Lazarus', abilityText:'Cura e rianima tutti i compagni presenti nella tua stanza.' },
+  { id:'face', callsign:'ECHO', role:'FACE', specialty:'Manipolazione', color:'#ff73ca', maxHp:90, dmg:9, focus:9, weapon:'Kestrel silenziata', ability:'Identità sintetica', abilityText:'Abbassa l’allarme di tutto il livello e distrae gli ostili nella tua stanza.' },
+  { id:'driver', callsign:'JAX', role:'DRIVER', specialty:'Droni e mobilità', color:'#ff8b4a', maxHp:105, dmg:10, focus:6, weapon:'Vector SMG', ability:'Sciame MANTA', abilityText:'Colpisce due ostili nella tua stanza o in una collegata (18 danni ciascuno).' },
 ];
 
 // CATALOGO MISSIONI
-// Ogni missione riusa lo stesso motore (plancia procedurale, nodi, allarme,
-// combattimento) e differisce solo per l'obiettivo finale in teca/nucleo/cella
-// e per la meccanica di "carico" che lo accompagna. `narrative` risolve i testi
-// che dipendono dai nomi delle stanze usando l'helper `roomName` locale a
-// `createGame`, perché lì la variabile globale `game` non è ancora assegnata.
+// Ogni missione riusa lo stesso motore (nodi, allarme, combattimento) e differisce solo per
+// l'obiettivo finale in teca/nucleo/cella, per la meccanica di "carico" che lo accompagna e
+// per la plancia fissa in `layout`. `narrative` risolve i testi che dipendono dai nomi delle
+// stanze usando l'helper `roomName` locale a `createGame`, perché lì la variabile globale
+// `game` non è ancora assegnata.
+// `layout` = plancia della missione, scritta a mano e stabile (`createGame` la clona senza
+// toccarla): `rooms` con id, name, col/row, w/h, links e i flag di ruolo
+// start/vault/exit/node/exposed/cover, più startRoom/vaultRoom/dropRoom/nodeRooms. Lo schema
+// mostrato nel briefing pre-partita è esattamente questa mappa. Per cambiarla si edita qui.
+const mapNote = (vaultNoun, roomCount) => `Plancia fissa di questa missione: ${roomCount} stanze su una griglia, collegate solo da alcune porte — due stanze vicine possono non comunicare affatto. La mappa contiene la zona di partenza (S), tre nodi di rete (N), ${vaultNoun} dell’obiettivo e il punto di consegna (▼), lontani fra loro, ed è sempre la stessa a ogni partita. Lo schema qui sotto segna solo dove stanno questi elementi.`;
+
 const MISSIONS = {
   valigetta: {
     id: 'valigetta', title: 'MISSIONE 01 // LA VALIGETTA', tagline: 'Furto ed estrazione',
-    brief: 'Plancia generata da zero a ogni partita. Violate i nodi per aprire la teca, recuperate la valigetta MNEMOSYNE e consegnatela al punto di raccolta. Gli Helix sono un ostacolo sulla strada, non l’obiettivo.',
+    brief: 'Violate i nodi per aprire la teca, recuperate la valigetta MNEMOSYNE e consegnatela al punto di raccolta. Gli Helix sono un ostacolo sulla strada, non l’obiettivo.',
     goalHeadline: 'Recuperate MNEMOSYNE',
+    intro: 'Dentro la Helix Tower, in una teca cifrata, c’è un prototipo chiamato MNEMOSYNE. Il blackout vi apre una finestra stretta: entrare, aprire la teca e sparire prima che la torre capisca cosa sta succedendo. I presidi Helix stanno esattamente dove dovete passare — ma il vostro obiettivo è la valigetta, non loro.',
+    objectives: [
+      'Violate 2 nodi di rete (sulla plancia ce ne sono 3) per sbloccare la teca.',
+      'Raggiungete la stanza della teca e usate RECUPERO per prendere la valigetta MNEMOSYNE.',
+      'Trasportate la valigetta fino al punto di consegna senza farvi bloccare dai presidi.',
+      'Portate ogni operativo ancora vivo nel punto di consegna per chiudere l’estrazione.',
+    ],
+    mapNote: mapNote('la teca', 12),
+    layout: {
+      rooms: [
+        {id:'A01',name:'SMISTAMENTO',col:1,row:1,w:1,h:1,links:['A04','B02'],exit:true},
+        {id:'B02',name:'ACCESSO',col:2,row:1,w:1,h:1,links:['A01','B05'],cover:true},
+        {id:'C03',name:'GARAGE',col:3,row:1,w:2,h:1,links:['C06','D07'],cover:true},
+        {id:'A04',name:'CELLE',col:1,row:2,w:1,h:1,links:['A08','B05','A01'],cover:true},
+        {id:'B05',name:'SERVER FARM',col:2,row:2,w:1,h:2,links:['A04','C06','B02','A10','A08'],exposed:true},
+        {id:'C06',name:'DEPOSITO',col:3,row:2,w:1,h:1,links:['B05','C03','C09'],cover:true},
+        {id:'D07',name:'TORRE RADIO',col:4,row:2,w:1,h:1,links:['C03'],vault:true},
+        {id:'A08',name:'HANGAR',col:1,row:3,w:1,h:1,links:['A04','A10','B05'],node:true},
+        {id:'C09',name:'ARCHIVIO',col:3,row:3,w:2,h:1,links:['C11','C06'],node:true},
+        {id:'A10',name:'NEXUS',col:1,row:4,w:2,h:1,links:['A08','C11','B05'],start:true},
+        {id:'C11',name:'TERMICA',col:3,row:4,w:1,h:1,links:['A10','D12','C09'],exposed:true},
+        {id:'D12',name:'SALA POMPE',col:4,row:4,w:1,h:1,links:['C11'],node:true},
+      ],
+      startRoom: 'A10', vaultRoom: 'D07', dropRoom: 'A01',
+      nodeRooms: ['A08', 'C09', 'D12'],
+    },
     narrative(layout, roomName) {
       return {
         objective: `Violate ${NODES_REQUIRED} nodi per sbloccare la teca di ${roomName(layout.vaultRoom)}, recuperate la valigetta MNEMOSYNE e consegnatela in ${roomName(layout.dropRoom)}.`,
@@ -255,6 +197,33 @@ const MISSIONS = {
     id: 'nucleo', title: 'MISSIONE 02 // GHOST PROTOCOL', tagline: 'Sabotaggio dati',
     brief: 'Niente da rubare: violate i nodi per abbattere il firewall del nucleo dati, raggiungetelo e lanciate la PURGA. Da quel momento ogni sistema Helix converge sulla vostra posizione — sparire in fretta è l’unica strategia.',
     goalHeadline: 'Cancellate MNEMOSYNE dal nucleo',
+    intro: 'MNEMOSYNE non va rubato, va cancellato alla fonte. Scendete nel nucleo dati della Helix Tower, abbattete il firewall e lanciate la PURGA. Nell’istante in cui parte, ogni sistema della torre sa dove siete e converge: da lì in poi è solo fuga.',
+    objectives: [
+      'Violate 2 nodi di rete per abbattere il firewall del nucleo dati.',
+      'Raggiungete il nucleo e lanciate la PURGA.',
+      'Dopo la PURGA ogni sistema Helix converge su di voi: raggiungete il punto di consegna prima della saturazione.',
+      'Portate ogni operativo ancora vivo nel punto di consegna per l’estrazione.',
+    ],
+    mapNote: mapNote('il nucleo dati', 13),
+    layout: {
+      rooms: [
+        {id:'A01',name:'SMISTAMENTO',col:1,row:1,w:2,h:1,links:['C02'],vault:true},
+        {id:'C02',name:'NEXUS',col:3,row:1,w:1,h:1,links:['C06','D03','A01'],cover:true},
+        {id:'D03',name:'CAMERA BIANCA',col:4,row:1,w:1,h:1,links:['C02'],node:true},
+        {id:'A04',name:'ARCHIVIO',col:1,row:2,w:1,h:1,links:['B05'],cover:true},
+        {id:'B05',name:'MAGAZZINO',col:2,row:2,w:1,h:1,links:['C06','A04','B09'],cover:true},
+        {id:'C06',name:'ACCESSO',col:3,row:2,w:1,h:1,links:['B05','D07','C02'],exposed:true},
+        {id:'D07',name:'PONTE',col:4,row:2,w:1,h:1,links:['C06','C10'],exit:true},
+        {id:'A08',name:'MENSA',col:1,row:3,w:1,h:1,links:['B09','A11'],cover:true},
+        {id:'B09',name:'HANGAR',col:2,row:3,w:1,h:1,links:['B05','C10','A08','B12'],node:true},
+        {id:'C10',name:'TERMICA',col:3,row:3,w:2,h:1,links:['B09','C13','D07'],exposed:true},
+        {id:'A11',name:'CELLE',col:1,row:4,w:1,h:1,links:['A08','B12'],start:true},
+        {id:'B12',name:'CRIOSALA',col:2,row:4,w:1,h:1,links:['B09','C13','A11'],cover:true},
+        {id:'C13',name:'SALA POMPE',col:3,row:4,w:2,h:1,links:['B12','C10'],node:true},
+      ],
+      startRoom: 'A11', vaultRoom: 'A01', dropRoom: 'D07',
+      nodeRooms: ['D03', 'B09', 'C13'],
+    },
     narrative(layout, roomName) {
       return {
         objective: `Violate ${NODES_REQUIRED} nodi per abbattere il firewall del nucleo dati in ${roomName(layout.vaultRoom)}, lanciate la PURGA e sparite da ${roomName(layout.dropRoom)} prima che la torre richiuda ogni via d’uscita.`,
@@ -268,6 +237,33 @@ const MISSIONS = {
     id: 'ostaggio', title: 'MISSIONE 03 // OSTAGGIO', tagline: 'Salvataggio',
     brief: 'Nella cella è rinchiuso un informatore. Violate i nodi per sbloccarla, liberatelo e scortatelo vivo fino al punto di consegna: non combatte, e se lo lasciate solo con degli ostili viene colpito ogni round finché qualcuno non torna a scortarlo.',
     goalHeadline: 'Salvate l’informatore',
+    intro: 'Nella cella della Helix Tower è rinchiuso un informatore che sa troppo per restare lì. Sbloccate la cella, tiratelo fuori e portatelo vivo all’estrazione. Non spara e non corre: ogni round che passa lontano da voi, con degli ostili attorno, è un round in cui rischia di non uscirne.',
+    objectives: [
+      'Violate 2 nodi di rete per sbloccare la cella.',
+      'Usate LIBERA nella stanza della cella per far uscire l’informatore.',
+      'Scortatelo fino al punto di consegna: se resta solo con ostili viene colpito ogni round.',
+      'Portate l’informatore e ogni operativo ancora vivo nel punto di consegna.',
+    ],
+    mapNote: mapNote('la cella', 13),
+    layout: {
+      rooms: [
+        {id:'A01',name:'PONTE',col:1,row:1,w:1,h:2,links:['B05','B02'],exit:true},
+        {id:'B02',name:'SMISTAMENTO',col:2,row:1,w:1,h:1,links:['B05','A01','C03'],exposed:true},
+        {id:'C03',name:'SALA POMPE',col:3,row:1,w:1,h:2,links:['D06','B05','B02','D04'],node:true},
+        {id:'D04',name:'DEPOSITO',col:4,row:1,w:1,h:1,links:['D06','C03'],node:true},
+        {id:'B05',name:'GARAGE',col:2,row:2,w:1,h:2,links:['C03','B02','A01','B11','A07'],exposed:true},
+        {id:'D06',name:'ATRIO',col:4,row:2,w:1,h:1,links:['D04','D09','C03'],cover:true},
+        {id:'A07',name:'CRIOSALA',col:1,row:3,w:1,h:1,links:['B05','A10'],cover:true},
+        {id:'C08',name:'HANGAR',col:3,row:3,w:1,h:1,links:['D09','C12'],cover:true},
+        {id:'D09',name:'TERMICA',col:4,row:3,w:1,h:1,links:['D06','C08','D13'],cover:true},
+        {id:'A10',name:'CELLE',col:1,row:4,w:1,h:1,links:['A07'],start:true},
+        {id:'B11',name:'SERVER FARM',col:2,row:4,w:1,h:1,links:['B05'],cover:true},
+        {id:'C12',name:'MAGAZZINO',col:3,row:4,w:1,h:1,links:['C08','D13'],vault:true},
+        {id:'D13',name:'NEXUS',col:4,row:4,w:1,h:1,links:['C12','D09'],node:true},
+      ],
+      startRoom: 'A10', vaultRoom: 'C12', dropRoom: 'A01',
+      nodeRooms: ['C03', 'D04', 'D13'],
+    },
     narrative(layout, roomName) {
       return {
         objective: `Violate ${NODES_REQUIRED} nodi per sbloccare la cella in ${roomName(layout.vaultRoom)}, liberate l’informatore e scortatelo vivo fino a ${roomName(layout.dropRoom)}.`,
@@ -278,26 +274,30 @@ const MISSIONS = {
   },
 };
 const missionOf = (id) => MISSIONS[id] || MISSIONS.valigetta;
-const missionList = () => Object.values(MISSIONS).map(({ narrative: _narrative, ...meta }) => meta);
+const missionList = () => Object.values(MISSIONS).map(({ narrative: _narrative, layout: _layout, ...meta }) => meta);
 
 let game = null;
 if (existsSync(DATA_FILE)) {
   try { game = JSON.parse(await readFile(DATA_FILE, 'utf8')); } catch { game = null; }
 }
-// Una partita salvata da una versione precedente non ha la plancia procedurale né la
+// Una partita salvata da una versione precedente non ha la plancia (`map`) né la
 // valigetta: va scartata invece di trascinarsi dietro regole che non esistono più.
 if (game && (!Array.isArray(game.map) || !game.dropRoom || !game.vaultRoom)) game = null;
+// Sistema a turni: le partite salvate prima non hanno l'ordine di turno né il turno attivo.
+if (game && !Array.isArray(game.turnOrder)) game = null;
+// Combattimento semplificato (solo INTEGRITÀ + DANNO): le partite con corazza/scudo vanno scartate.
+if (game && game.players?.some((p) => typeof p.dmg !== 'number')) game = null;
 // Manovra gratuita per round: le partite vecchie non hanno lo slot dedicato.
 if (game) for (const p of game.players) if (p.move === undefined) p.move = null;
 // Le partite salvate prima del sistema missioni sono tutte "LA VALIGETTA".
 if (game && !game.missionId) game.missionId = 'valigetta';
+// Picchi d'allarme: le partite vecchie non tracciano quali soglie hanno già generato un'unità.
+if (game && !Array.isArray(game.alarmSpawns)) game.alarmSpawns = [];
 
 const nowTime = () => new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
 const makeCode = () => `${['NEON','VOID','NOVA','GRID'][Math.floor(Math.random()*4)]}-${Math.floor(10+Math.random()*90)}`;
 const alive = (unit) => unit.hp > 0;
 const connected = (player) => Boolean(player.deviceId && Date.now() - (player.lastSeen || 0) < LINK_TIMEOUT);
-const participant = (player) => Boolean(player.deviceId && Date.now() - (player.lastSeen || 0) < LINK_GRACE);
-const roundLength = () => ROUND_SECONDS * 1000;
 const roomById = (id) => game.map.find((room) => room.id === id) || game.map[0];
 const roomLabel = (id) => `${id} // ${roomById(id).name}`;
 const enemiesIn = (roomId) => game.enemies.filter((e) => alive(e) && e.room === roomId);
@@ -335,34 +335,35 @@ async function save() {
 function publicGame() {
   if (!game) return null;
   const players = game.players.map((p)=>({...p,connected:connected(p)}));
-  const waiting = game.players.filter((p)=>alive(p)&&participant(p)&&!p.action).map((p)=>p.name);
-  // Nessun tempo limite per turno: il round si chiude solo quando tutti hanno trasmesso.
-  const secondsLeft = null;
-  return {...game, players, waiting, secondsLeft, roundSeconds:ROUND_SECONDS, caseAt:caseRoomNow(), hostageAt:hostageRoomNow(), vaultOpen:vaultOpen()};
+  // `waiting` = l'operativo di cui è il turno adesso (una voce sola), per la riga di stato della plancia.
+  const active = game.players.find((p)=>p.id===game.activePlayerId&&alive(p));
+  const waiting = active?[active.name]:[];
+  return {...game, players, waiting, caseAt:caseRoomNow(), hostageAt:hostageRoomNow(), vaultOpen:vaultOpen()};
 }
 
 function createGame(body) {
-  const layout = buildMap();
+  const mission = missionOf(body.missionId);
+  // Plancia fissa della missione, clonata così com'è: nessuna generazione casuale.
+  const layout = structuredClone(mission.layout);
   const picks = body.players.slice(0,6);
   const players = picks.map((pick,index)=>{
     const t = templates.find((item)=>item.id===pick.characterId) || templates[index];
-    return {id:`p${index+1}`, name:String(pick.name||t.callsign).slice(0,14).toUpperCase(), characterId:t.id, callsign:t.callsign, role:t.role, specialty:t.specialty, color:t.color, stats:t.stats, maxHp:t.maxHp, hp:t.maxHp, armor:t.armor, focus:t.focus, maxFocus:t.focus, weapon:t.weapon, ability:t.ability, abilityText:t.abilityText, stress:0, shield:0, room:layout.startRoom, action:null, move:null, deviceId:null, lastSeen:0};
+    return {id:`p${index+1}`, name:String(pick.name||t.callsign).slice(0,14).toUpperCase(), characterId:t.id, callsign:t.callsign, role:t.role, specialty:t.specialty, color:t.color, maxHp:t.maxHp, hp:t.maxHp, dmg:t.dmg, focus:t.focus, maxFocus:t.focus, weapon:t.weapon, ability:t.ability, abilityText:t.abilityText, room:layout.startRoom, action:null, move:null, turnDone:false, deviceId:null, lastSeen:0};
   });
   const hpScale=1+0.3*(players.length-3);
   const dmgScale=1+0.12*(players.length-3);
   const roomName=(id)=>{const r=layout.rooms.find((x)=>x.id===id);return `${id} // ${r?.name||''}`;};
-  const mission=missionOf(body.missionId);
   const narrative={goalHeadline:mission.goalHeadline, ...mission.narrative(layout,roomName)};
   return {
-    code:makeCode(), phase:'lobby', round:1, alarm:ALARM_START, breach:0, roundEndsAt:0, hpScale, dmgScale,
+    code:makeCode(), phase:'lobby', round:1, alarm:ALARM_START, breach:0, alarmSpawns:[], hpScale, dmgScale,
+    turnOrder:players.map((p)=>p.id), activePlayerId:players[0]?.id||null,
     missionId:mission.id, title:mission.title, location:`HELIX TOWER // SETTORE ${['NORD','SUD','EST','OVEST'][Math.floor(Math.random()*4)]}`,
     objective:narrative.objective, narrative,
     map:layout.rooms, startRoom:layout.startRoom, vaultRoom:layout.vaultRoom, dropRoom:layout.dropRoom,
     nodeRooms:layout.nodeRooms, nodesRequired:NODES_REQUIRED,
     nodes:Object.fromEntries(layout.nodeRooms.map((id)=>[id,false])),
-    caseRoom:layout.vaultRoom, caseHolder:null, caseDelivered:false, purged:false,
+    caseRoom:layout.vaultRoom, caseHolder:null, caseDelivered:false, purged:false, lockdown:false,
     hostage:{room:layout.vaultRoom, holder:null, hp:HOSTAGE_MAX_HP, maxHp:HOSTAGE_MAX_HP, freed:false, delivered:false},
-    lockdown:false,
     players,
     enemies:buildEnemies(layout,layout.rooms,hpScale,dmgScale,players.length),
     feed:[{time:nowTime(),tone:'system',text:`Canale clandestino aperto. Squadra in posizione a ${roomName(layout.startRoom)}.`}],
@@ -376,23 +377,20 @@ function log(text,tone='system') {
   game.feed = game.feed.slice(0,10);
 }
 
-function damageEnemy(enemy,raw,actor) {
-  const dealt=Math.max(1,raw-enemy.armor);
-  enemy.hp=Math.max(0,enemy.hp-dealt);
-  log(`${actor} infligge ${dealt} danni a ${enemy.name} in ${enemy.room}.`, 'combat');
+function damageEnemy(enemy,dmg,actor) {
+  enemy.hp=Math.max(0,enemy.hp-dmg);
+  log(`${actor} infligge ${dmg} danni a ${enemy.name} in ${enemy.room}.`, 'combat');
   if(enemy.hp===0) log(`${enemy.name} neutralizzato in ${enemy.room}.`, 'success');
 }
 
 function revive(target,healer,amount) {
   target.hp=Math.min(target.maxHp,amount);
-  target.stress=Math.max(0,target.stress-20);
   log(`${healer} rianima ${target.name} in ${target.room}.`, 'success');
 }
 
-function breachNode(roomId,actor,mente){
+function breachNode(roomId,actor){
   game.nodes[roomId]=true;
   game.breach=breachCount();
-  game.alarm=Math.max(0,game.alarm-(8+Math.floor(mente/2)));
   log(`${actor} viola il nodo di ${roomLabel(roomId)} — nodi ${game.breach}/${game.nodeRooms.length}.`, 'hack');
   if(vaultOpen()&&!game.vaultAnnounced){game.vaultAnnounced=true;log(game.narrative.vaultUnlocked,'success');}
 }
@@ -415,53 +413,42 @@ function dropHostage(reason){
   log(`L’informatore resta indietro in ${roomLabel(holder.room)}: ${reason}.`,'danger');
 }
 
-// FASE 1 // MANOVRA: tutti gli spostamenti si risolvono prima del fuoco, così la posizione
-// dichiarata durante il round è quella che conta per il combattimento.
-// Restituisce true se almeno un operativo si è sganciato sotto il fuoco: l'allarme di uno
-// sganciamento si paga UNA VOLTA per round, non a testa. Una rotta è un solo evento per la
-// centrale, e con gli ostili che inseguono la squadra sarebbe altrimenti una tassa continua.
-function resolveMovement(actors){
-  let disengaged=false;
-  for(const p of actors){
-    if(!p.move) continue;
-    const destination=p.move.roomId;
-    if(!roomById(p.room).links.includes(destination)){
-      log(`${p.name} non trova una porta verso ${destination}: resta in ${p.room}.`,'system');
-      continue;
-    }
-    // Sganciarsi da una stanza presidiata costa: gli ostili colpiscono chi volta le spalle.
-    const guards=enemiesIn(p.room);
-    if(guards.length){
-      const hit=Math.max(1,Math.round(guards[0].damage*0.6)-p.armor);
-      p.hp=Math.max(0,p.hp-hit);
-      disengaged=true;
-      log(`${p.name} si sgancia sotto il fuoco di ${guards[0].name}: ${hit} danni.`,'danger');
-    }
-    p.room=destination;
-    if(alive(p)) log(`${p.name} raggiunge ${roomLabel(destination)}${game.caseHolder===p.id?' con la valigetta':''}${game.hostage.holder===p.id?' con l’informatore':''}.`,'system');
-    else {
-      if(game.caseHolder===p.id) dropCase(`${p.name} è caduto nel passaggio`);
-      if(game.hostage.holder===p.id) dropHostage(`${p.name} è caduto nel passaggio`);
-      log(`${p.name} crolla nel passaggio verso ${destination}.`,'danger');
-    }
+// MANOVRA: lo spostamento del turno si risolve subito. Sganciarsi da una stanza presidiata costa.
+function applyMove(p){
+  if(!p.move) return;
+  const destination=p.move.roomId;
+  if(!roomById(p.room).links.includes(destination)){
+    log(`${p.name} non trova una porta verso ${destination}: resta in ${p.room}.`,'system');
+    return;
   }
-  return disengaged;
+  const guards=enemiesIn(p.room);
+  if(guards.length){
+    const hit=Math.max(1,Math.round(guards[0].damage*0.6));
+    p.hp=Math.max(0,p.hp-hit);
+    log(`${p.name} si sgancia sotto il fuoco di ${guards[0].name}: ${hit} danni.`,'danger');
+  }
+  p.room=destination;
+  if(alive(p)) log(`${p.name} raggiunge ${roomLabel(destination)}${game.caseHolder===p.id?' con la valigetta':''}${game.hostage.holder===p.id?' con l’informatore':''}.`,'system');
+  else {
+    if(game.caseHolder===p.id) dropCase(`${p.name} è caduto nel passaggio`);
+    if(game.hostage.holder===p.id) dropHostage(`${p.name} è caduto nel passaggio`);
+    log(`${p.name} crolla nel passaggio verso ${destination}.`,'danger');
+  }
 }
 
-// FASE 2 // AZIONI: risolte in ordine di Riflessi, sempre limitate alla stanza occupata.
-function resolveActions(actors){
-  const ordered=[...actors].sort((a,b)=>b.stats.riflessi-a.stats.riflessi);
-  for(const p of ordered){
-    if(!alive(p)) continue;
-    const action=p.action;
-    if(!action||action.type==='move') continue;
+// AZIONE: l'azione del turno si risolve subito, sempre limitata alla stanza occupata.
+function applyAction(p){
+  if(!alive(p)) return;
+  const action=p.action;
+  if(!action||action.type==='move') return;
+  {
     const room=roomById(p.room);
     const hostiles=enemiesIn(p.room);
     const target=hostiles.find((e)=>e.id===action.targetId)||hostiles[0];
 
     if(action.type==='attack'){
-      if(!target){ p.shield+=5; log(`${p.name} non ha bersagli in ${p.room}: tiene la posizione.`,'system'); }
-      else damageEnemy(target,12+p.stats.riflessi+Math.floor(Math.random()*8),p.name);
+      if(!target) log(`${p.name} non ha bersagli in ${p.room}: tiene la posizione.`,'system');
+      else damageEnemy(target,p.dmg,p.name);
     }
 
     if(action.type==='grab'){
@@ -471,7 +458,7 @@ function resolveActions(actors){
       else{
         const fresh=!game.caseTaken;
         game.caseHolder=p.id;game.caseRoom=null;game.caseTaken=true;
-        if(fresh){game.alarm=Math.min(100,game.alarm+ALARM_ON_GRAB);log(`${p.name} stacca la valigetta MNEMOSYNE dalla teca: allarme +${ALARM_ON_GRAB}.`,'danger');}
+        if(fresh) log(`${p.name} stacca la valigetta MNEMOSYNE dalla teca.`,'danger');
         else log(`${p.name} recupera la valigetta in ${roomLabel(p.room)}.`,'success');
       }
     }
@@ -483,7 +470,6 @@ function resolveActions(actors){
       else if(!vaultOpen()) log(`${p.name}: il firewall del nucleo è ancora attivo.`,'system');
       else{
         game.purged=true;
-        game.alarm=Math.min(100,game.alarm+GHOST_PURGE_ALARM_SPIKE);
         log(game.narrative.purged,'danger');
       }
     }
@@ -497,7 +483,7 @@ function resolveActions(actors){
       else{
         const fresh=!game.hostage.freed;
         game.hostage.holder=p.id;game.hostage.freed=true;
-        if(fresh){game.alarm=Math.min(100,game.alarm+ALARM_ON_FREE);log(`${p.name} libera l’informatore: allarme +${ALARM_ON_FREE}.`,'danger');}
+        if(fresh) log(`${p.name} libera l’informatore.`,'danger');
         else log(`${p.name} riprende la scorta dell’informatore in ${roomLabel(p.room)}.`,'success');
       }
     }
@@ -506,18 +492,10 @@ function resolveActions(actors){
       if(!room.node) log(`${p.name} non trova terminali in ${roomLabel(p.room)}.`,'system');
       else if(game.nodes[p.room]) log(`${p.name}: il nodo di ${p.room} è già violato.`,'system');
       else {
-        breachNode(p.room,p.name,p.stats.mente);
+        breachNode(p.room,p.name);
         const drone=hostiles.find((e)=>e.type==='DRONE');
-        if(drone) damageEnemy(drone,8+p.stats.mente,p.name);
+        if(drone) damageEnemy(drone,10,p.name);
       }
-    }
-
-    if(action.type==='guard'){
-      const bonus=room.cover?6:0;
-      const raw=10+Math.floor(p.stats.corpo/2)+bonus;
-      // Chi porta la valigetta o scorta l'informatore ha una mano occupata: si ripara la metà.
-      p.shield=(game.caseHolder===p.id||game.hostage.holder===p.id)?Math.round(raw/2):raw;
-      log(bonus?`${p.name} sfrutta la copertura di ${p.room} (scudo ${p.shield}).`:`${p.name} assume posizione di copertura in ${p.room}.`,'system');
     }
 
     if(action.type==='heal'){
@@ -529,9 +507,8 @@ function resolveActions(actors){
         const wounded=[...alliesIn(p.room)].sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp)[0];
         if(!wounded){ log(`${p.name} non ha nessuno da curare in ${p.room}.`,'system'); }
         else{
-          const amount=10+p.stats.mente;
+          const amount=12;
           wounded.hp=Math.min(wounded.maxHp,wounded.hp+amount);
-          wounded.stress=Math.max(0,wounded.stress-6);
           log(`${p.name} ripristina ${amount} integrità a ${wounded.name} in ${p.room}.`,'success');
         }
       }
@@ -540,25 +517,24 @@ function resolveActions(actors){
     if(action.type==='ability'){
       p.focus=Math.max(0,p.focus-3);
       if(p.characterId==='ghost'){
-        p.shield+=8;
-        if(target) damageEnemy(target,20+p.stats.riflessi,p.name);
+        if(target) damageEnemy(target,26,p.name);
         else log(`${p.name} svanisce nelle ombre di ${p.room}.`,'system');
       }
       else if(p.characterId==='chrome'){
-        if(target){ damageEnemy(target,29+p.stats.corpo,p.name); game.alarm=Math.min(100,game.alarm+ALARM_CHROME_SPIKE); }
+        if(target) damageEnemy(target,40,p.name);
         else log(`${p.name} scarica il cromo a vuoto: nessun ostile in ${p.room}.`,'system');
       }
       else if(p.characterId==='cipher'){
         // La guerra di rete raggiunge anche la stanza collegata: il CIPHER non deve esporsi.
         const reach=[p.room,...room.links];
         const nodeRoom=reach.find((id)=>roomById(id).node&&!game.nodes[id]);
-        if(nodeRoom) breachNode(nodeRoom,p.name,p.stats.mente);
+        if(nodeRoom) breachNode(nodeRoom,p.name);
         else log(`${p.name} lancia uno zero-day ma non aggancia nodi da ${p.room}.`,'system');
         for(const e of game.enemies.filter((x)=>alive(x)&&x.type==='DRONE'&&reach.includes(x.room))) damageEnemy(e,25,p.name);
       }
       else if(p.characterId==='ripper'){
         for(const ally of game.players.filter((x)=>x.room===p.room)){
-          if(alive(ally)) ally.hp=Math.min(ally.maxHp,ally.hp+15);
+          if(alive(ally)) ally.hp=Math.min(ally.maxHp,ally.hp+18);
           else revive(ally,p.name,Math.round(ally.maxHp*LAZARUS_RATIO));
         }
         log(`${p.name} attiva Protocollo Lazarus in ${roomLabel(p.room)}.`,'success');
@@ -572,7 +548,7 @@ function resolveActions(actors){
         const reach=[p.room,...room.links];
         const swarm=game.enemies.filter((e)=>alive(e)&&reach.includes(e.room)).slice(0,2);
         if(!swarm.length) log(`${p.name} lancia lo sciame MANTA ma non trova ostili nel settore.`,'system');
-        for(const e of swarm) damageEnemy(e,18+p.stats.riflessi,p.name);
+        for(const e of swarm) damageEnemy(e,18,p.name);
       }
     }
   }
@@ -591,12 +567,8 @@ function resolveEnemies(){
       const carrier=inRoom.find((p)=>p.id===game.caseHolder||p.id===game.hostage.holder);
       const target=carrier||inRoom[(game.round+enemy.threat)%inRoom.length];
       enemy.chasing=target.id;
-      const absorbed=Math.min(target.shield,enemy.damage);
-      target.shield-=absorbed;
-      const dealt=Math.max(1,enemy.damage-absorbed-target.armor);
-      target.hp=Math.max(0,target.hp-dealt);
-      target.stress=Math.min(100,target.stress+4+enemy.threat);
-      log(`${enemy.name} colpisce ${target.name} in ${enemy.room}: ${dealt} danni.`,'danger');
+      target.hp=Math.max(0,target.hp-enemy.damage);
+      log(`${enemy.name} colpisce ${target.name} in ${enemy.room}: ${enemy.damage} danni.`,'danger');
       if(target.hp===0){
         log(`${target.name} è fuori combattimento in ${enemy.room}.`,'danger');
         if(game.caseHolder===target.id) dropCase(`${target.name} è a terra`);
@@ -626,27 +598,24 @@ function resolveEnemies(){
   }
 }
 
-function resolveRound() {
-  const actors=game.players.filter(alive);
-  for(const p of actors) if(!p.action) p.action={type:'guard',targetId:null,label:'Copertura automatica'};
-
-  const disengaged=resolveMovement(actors);
-  resolveActions(actors);
+// FASE HELIX + chiusura del round: parte quando tutti gli operativi hanno finito il turno
+// (o dalla plancia con CHIUDI ROUND). Risolve i nemici, poi aggiorna allarme/breccia/round.
+function runEnemyPhase() {
   resolveEnemies();
 
-  // Le zone esposte sono scoperte: chi ci resta a fine round alza l'allarme.
-  const exposedCount=game.players.filter((p)=>alive(p)&&roomById(p.room).exposed).length;
-  if(exposedCount) log(`${exposedCount} operativi in zona esposta: le telecamere li agganciano.`,'danger');
-
-  // Trasmette solo chi vi ha davvero addosso: un inseguitore che ha perso il contatto in
-  // corridoio non alza l'allarme. Staccarsi dagli ostili è quindi una mossa che paga.
-  const contact=Math.min(ALARM_CONTACT_CAP,game.enemies.filter((e)=>alive(e)&&alliesIn(e.room).length).length);
-  const carrying=Boolean(game.caseHolder);
-  const purgedPressure=game.missionId==='nucleo'&&game.purged;
-  game.alarm=Math.min(100,game.alarm+ALARM_PER_ROUND+contact*ALARM_PER_CONTACT+exposedCount*ALARM_PER_EXPOSED+(carrying?ALARM_CARRY:0)+(disengaged?ALARM_ON_DISENGAGE:0)+(purgedPressure?GHOST_ALARM_PER_ROUND_BONUS:0));
+  // L'allarme sale solo del respiro della torre: +3 a ogni round, nient'altro.
+  game.alarm=Math.min(100,game.alarm+ALARM_PER_ROUND);
   game.breach=breachCount();
   game.round+=1;
-  game.players.forEach((p)=>{p.action=null;p.move=null;p.shield=Math.max(0,p.shield-SHIELD_DECAY);p.focus=Math.min(p.maxFocus,p.focus+1);});
+  game.players.forEach((p)=>{p.action=null;p.move=null;p.turnDone=false;p.focus=Math.min(p.maxFocus,p.focus+1);});
+
+  // LOCKDOWN: oltre LOCKDOWN_ALARM la torre allerta ogni presidio, anche quello mai ingaggiato.
+  // Da qui in poi tutti i nemici convergono verso la stanza dei Player.
+  if(!game.lockdown&&game.alarm>=LOCKDOWN_ALARM){
+    game.lockdown=true;
+    for(const e of game.enemies) e.locked=true;
+    log(`LOCKDOWN: allarme al ${game.alarm}%. Ogni unità Helix del settore è allertata e converge sulla squadra.`,'danger');
+  }
 
   // CONSEGNA: la valigetta / l'informatore raggiunge il punto di raccolta a fine round.
   if(game.missionId==='valigetta'&&!game.caseDelivered&&game.caseHolder&&game.players.find((p)=>p.id===game.caseHolder)?.room===game.dropRoom){
@@ -656,13 +625,6 @@ function resolveRound() {
   if(game.missionId==='ostaggio'&&!game.hostage.delivered&&game.hostage.holder&&hostageRoomNow()===game.dropRoom){
     game.hostage.delivered=true;game.hostage.room=game.dropRoom;game.hostage.holder=null;
     log(`Informatore consegnato in ${roomLabel(game.dropRoom)}. Estraete la squadra.`,'success');
-  }
-
-  // LOCKDOWN: sopra la soglia la torre sveglia ogni presidio, anche quello mai ingaggiato.
-  if(!game.lockdown&&game.alarm>=LOCKDOWN_ALARM){
-    game.lockdown=true;
-    for(const e of game.enemies) e.locked=true;
-    log('LOCKDOWN: ogni unità Helix del settore è stata allertata.','danger');
   }
 
   const living=game.players.filter(alive);
@@ -681,10 +643,25 @@ function resolveRound() {
     log(hostageLost?'L’informatore non ce l’ha fatta: la missione è persa.':'Protocollo Helix completato. La squadra è perduta.','danger');
   }
   else{
+    // TRACCIA HELIX: a ogni soglia d'allarme (25/35/45/55/65/75%) una nuova unità entra in
+    // una stanza a caso e parte subito a caccia. Ogni soglia scatta una volta sola.
+    let alarmSpawnEvent=null;
+    for(const thr of ALARM_SPAWN_THRESHOLDS){
+      if(game.alarm<thr||game.alarmSpawns.includes(thr)) continue;
+      game.alarmSpawns.push(thr);
+      const room=game.map[Math.floor(Math.random()*game.map.length)];
+      const idx=game.enemies.filter((e)=>e.id.startsWith('hunter-')).length+1;
+      const unit=spawnEnemy('hunter',room.id,idx,game.hpScale||1,game.dmgScale||1);
+      unit.locked=true;
+      game.enemies.push(unit);
+      log(`Allarme al ${thr}%: ${unit.name} entra da ${roomLabel(room.id)} e vi dà la caccia.`,'danger');
+      alarmSpawnEvent={title:'TRACCIA HELIX',text:`Allarme ${thr}%: ${unit.name} entra da ${roomLabel(room.id)} e parte a caccia.`};
+    }
+
     let progressEvent=null;
     if(game.missionId==='valigetta'){
       if(game.caseDelivered) progressEvent={title:'ESTRAZIONE APERTA',text:`Portate ogni operativo vivo in ${roomLabel(game.dropRoom)} per chiudere l’operazione.`};
-      else if(game.caseHolder) progressEvent={title:'SEGNALE TRACCIATO',text:`La valigetta emette: l’allarme sale di ${ALARM_CARRY} ogni round finché non è in ${game.dropRoom}.`};
+      else if(game.caseHolder) progressEvent={title:'CARICO IN MANO',text:`Portate la valigetta fino a ${game.dropRoom} senza farvi inchiodare dai presidi.`};
       else if(vaultOpen()) progressEvent={title:'TECA APERTA',text:`La cifratura è caduta: la valigetta in ${roomLabel(game.vaultRoom)} è prelevabile.`};
     }
     else if(game.missionId==='nucleo'){
@@ -697,37 +674,45 @@ function resolveRound() {
       else if(game.hostage.freed) progressEvent={title:'INFORMATORE ABBANDONATO',text:`L’informatore è solo in ${roomLabel(hostageRoomNow())}: tornate a scortarlo prima che sia troppo tardi.`};
       else if(vaultOpen()) progressEvent={title:'CELLA APERTA',text:`La cifratura è caduta: l’informatore in ${roomLabel(game.vaultRoom)} può essere liberato.`};
     }
-    if(progressEvent) game.event=progressEvent;
-    else if(game.lockdown) game.event={title:'LOCKDOWN',text:'Ogni presidio è allertato e si muove verso di voi.'};
-    else if(game.round===5){
-      game.event={title:'RINFORZI IN ARRIVO',text:`Una unità Helix entra da ${roomLabel(game.startRoom)}.`};
-      const razor=spawnEnemy('razor',game.startRoom,game.round,game.hpScale||1,game.dmgScale||1);
-      razor.locked=true;
-      game.enemies.push(razor);
-      log(`${razor.name} entra da ${roomLabel(game.startRoom)} e vi cerca.`,'danger');
-    }
-    else if(game.round===9){
-      game.event={title:'SECONDA ONDATA',text:`Un’altra unità entra da ${roomLabel(game.dropRoom)}.`};
-      const razor=spawnEnemy('razor',game.dropRoom,game.round,game.hpScale||1,game.dmgScale||1);
-      razor.locked=true;
-      game.enemies.push(razor);
-      log(`${razor.name} entra da ${roomLabel(game.dropRoom)}.`,'danger');
-    }
+    if(alarmSpawnEvent) game.event=alarmSpawnEvent;
+    else if(progressEvent) game.event=progressEvent;
+    else if(game.lockdown) game.event={title:'LOCKDOWN',text:`Allarme al ${game.alarm}%: ogni presidio è allertato e si muove verso di voi.`};
     else game.event={title:'PRESSIONE HELIX',text:`Allarme ${game.alarm}%. Nodi ${game.breach}/${game.nodeRooms.length}, ne servono ${game.nodesRequired}.`};
   }
-  game.roundEndsAt=Date.now()+roundLength();
   game.updatedAt=Date.now();
 }
 
-// Un round si chiude quando tutti i telefoni collegati hanno risposto. Non c'è tempo limite:
-// senza telefoni collegati la partita resta in pausa, altrimenti si aspetta ogni azione
-// (o la chiusura manuale del round dalla plancia).
-function tryResolve() {
-  if(!game||game.phase!=='active') return false;
-  const expected=game.players.filter((p)=>alive(p)&&participant(p));
-  if(!expected.length||!game.players.some(connected)) return false;
-  if(expected.every((p)=>p.action)){resolveRound();return true;}
-  return false;
+// Dopo la fase Helix: se la partita è ancora aperta, si riparte dal primo operativo vivo
+// dell'ordine di turno (sempre lo stesso giro, in cerchio).
+function startNextRound(){
+  if(game.phase!=='active') return;
+  game.players.forEach((p)=>{p.turnDone=false;});
+  const firstAlive=game.players.find((p)=>alive(p));
+  game.activePlayerId=firstAlive?firstAlive.id:game.turnOrder[0];
+  game.updatedAt=Date.now();
+}
+
+// Fa avanzare il turno all'operativo vivo successivo nell'ordine fisso. Quando il giro è
+// completo risolve la fase Helix e apre il round nuovo. Usata dagli operativi (FINE TURNO)
+// e dalla plancia (SALTA TURNO).
+function advanceTurn(){
+  if(!game||game.phase!=='active') return;
+  const order=game.turnOrder||game.players.map((p)=>p.id);
+  const curIdx=order.indexOf(game.activePlayerId);
+  const cur=game.players.find((p)=>p.id===game.activePlayerId);
+  if(cur) cur.turnDone=true;
+  for(let i=curIdx+1;i<order.length;i++){
+    const np=game.players.find((x)=>x.id===order[i]);
+    if(np&&alive(np)){
+      game.activePlayerId=np.id;
+      np.action=null;np.move=null;
+      game.updatedAt=Date.now();
+      return;
+    }
+  }
+  // Giro completo: rispondono gli Helix, poi si riparte dal primo.
+  runEnemyPhase();
+  startNextRound();
 }
 
 // Preferisce le reti domestiche reali (Wi-Fi/Ethernet) rispetto a VPN e interfacce virtuali.
@@ -754,12 +739,12 @@ function send(res,status,payload){res.writeHead(status,{'Content-Type':'applicat
 async function api(req,res,url){
   try{
     if(req.method==='GET'&&url.pathname==='/api/state'){
-      if(tryResolve()) await save();
-      return send(res,200,{game:publicGame(),templates,missions:missionList(),networkUrl:getNetworkUrl(),networkUrls:networkCandidates()});
+      return send(res,200,{game:publicGame(),templates,enemyRoster:ENEMY_ROSTER,missions:missionList(),networkUrl:getNetworkUrl(),networkUrls:networkCandidates()});
     }
     if(req.method==='POST'&&url.pathname==='/api/setup'){
       const body=await jsonBody(req);
       if(!Array.isArray(body.players)||body.players.length<2||body.players.length>6)return send(res,400,{error:'Servono da 2 a 6 giocatori.'});
+      if(body.players.some((p)=>!p.characterId||!templates.some((t)=>t.id===p.characterId)))return send(res,400,{error:'Assegna una scheda a ogni operativo.'});
       if(new Set(body.players.map((p)=>p.characterId)).size!==body.players.length)return send(res,400,{error:'Ogni personaggio deve essere unico.'});
       game=createGame(body);await save();return send(res,200,{game:publicGame(),networkUrl:getNetworkUrl()});
     }
@@ -776,32 +761,36 @@ async function api(req,res,url){
       const body=await jsonBody(req);const p=game?.players.find((x)=>x.id===body.playerId&&x.deviceId===body.deviceId);
       if(!p)return send(res,404,{error:'Sessione non trovata.'});
       p.lastSeen=Date.now();
-      if(tryResolve()) await save();
       return send(res,200,{ok:true});
     }
     if(req.method==='POST'&&url.pathname==='/api/start'){
       const body=await jsonBody(req);if(!game||body.code!==game.code)return send(res,404,{error:'Partita non trovata.'});
       if(game.phase!=='lobby')return send(res,409,{error:'Operazione già avviata.'});
-      if(!game.players.some(connected))return send(res,409,{error:'Collega almeno un telefono prima di avviare.'});
-      game.phase='active';game.roundEndsAt=Date.now()+roundLength();
+      // Si può avviare anche senza tutti i telefoni (o senza nessuno) per ispezionare plancia/mappa:
+      // il turno resta fermo sull'operativo di mano finché il suo telefono non gioca (o la plancia salta).
+      game.phase='active';
+      game.turnOrder=game.players.map((p)=>p.id);
+      game.activePlayerId=(game.players.find((p)=>alive(p))||game.players[0]).id;
+      game.players.forEach((p)=>{p.action=null;p.move=null;p.turnDone=false;});
       log(game.narrative.opening,'combat');await save();return send(res,200,{game:publicGame()});
     }
     if(req.method==='POST'&&url.pathname==='/api/action'){
       const body=await jsonBody(req);if(!game||body.code!==game.code||game.phase!=='active')return send(res,409,{error:'Operazione non attiva.'});
       const p=game.players.find((x)=>x.id===body.playerId&&x.deviceId===body.deviceId);if(!p||!alive(p))return send(res,403,{error:'Accesso operativo negato.'});
-      const allowed=['move','attack','hack','guard','heal','ability','grab','purge','free'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
-      // MANOVRA: spostamento gratuito di una stanza, non consuma l'azione del round e resta
-      // ridichiarabile finché il round non si risolve. La plancia comanda: solo porte esistenti.
+      if(game.activePlayerId!==p.id)return send(res,409,{error:'Non è il tuo turno.'});
+      const allowed=['move','attack','hack','heal','ability','grab','purge','free'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
+      // MANOVRA: nel proprio turno si può fare una sola manovra (prima o dopo l'azione).
+      // Si risolve subito: l'operativo si sposta davvero e può subire il fuoco di sganciamento.
       if(body.type==='move'){
+        if(p.move)return send(res,409,{error:'Manovra già eseguita in questo turno.'});
         if(!roomById(p.room).links.includes(body.roomId))return send(res,400,{error:'Nessuna porta collega la tua stanza a quella.'});
-        p.move={roomId:body.roomId};p.lastSeen=Date.now();log(`${p.name} prepara una manovra verso ${roomLabel(body.roomId)}.`,'system');
-        tryResolve();
+        p.move={roomId:body.roomId};p.lastSeen=Date.now();
+        applyMove(p);
         await save();return send(res,200,{game:publicGame()});
       }
-      if(p.action)return send(res,409,{error:'Azione già trasmessa.'});
-      // L'azione ha effetto nella stanza in cui l'operativo si troverà: quella di destinazione
-      // se ha già dichiarato una manovra per questo round, altrimenti quella attuale.
-      const actRoom=p.move?p.move.roomId:p.room;
+      if(p.action)return send(res,409,{error:'Azione già eseguita in questo turno.'});
+      // La manovra, se fatta, è già stata risolta: l'azione ha effetto nella stanza attuale.
+      const actRoom=p.room;
       if(body.type==='ability'&&p.focus<3)return send(res,400,{error:'Focus insufficiente.'});
       if(body.type==='heal'&&p.focus<2)return send(res,400,{error:'Focus insufficiente.'});
       if(body.type==='attack'&&!enemiesIn(actRoom).length)return send(res,400,{error:'Nessun ostile nella tua stanza.'});
@@ -818,14 +807,32 @@ async function api(req,res,url){
       if(body.type==='free'&&game.hostage.holder)return send(res,400,{error:'L’informatore è già scortato da un compagno.'});
       if(body.type==='free'&&hostageRoomNow()!==actRoom)return send(res,400,{error:'L’informatore non è in questa stanza.'});
       if(body.type==='free'&&!game.hostage.freed&&actRoom===game.vaultRoom&&!vaultOpen())return send(res,400,{error:`Cella sigillata: violate ${game.nodesRequired} nodi.`});
-      p.action={type:body.type,targetId:body.targetId||null,roomId:body.roomId||null};p.lastSeen=Date.now();log(`${p.name} ha trasmesso la propria azione.`,'system');
-      tryResolve();
+      p.action={type:body.type,targetId:body.targetId||null,roomId:body.roomId||null};p.lastSeen=Date.now();
+      applyAction(p);
       await save();return send(res,200,{game:publicGame()});
     }
-    // Sblocco manuale dalla plancia: chiude subito il round in corso.
+    // FINE TURNO: l'operativo di mano chiude il suo turno e passa la mano.
+    if(req.method==='POST'&&url.pathname==='/api/endturn'){
+      const body=await jsonBody(req);if(!game||body.code!==game.code||game.phase!=='active')return send(res,409,{error:'Operazione non attiva.'});
+      const p=game.players.find((x)=>x.id===body.playerId&&x.deviceId===body.deviceId);if(!p)return send(res,403,{error:'Accesso operativo negato.'});
+      if(game.activePlayerId!==p.id)return send(res,409,{error:'Non è il tuo turno.'});
+      p.lastSeen=Date.now();log(`${p.name} chiude il turno.`,'system');
+      advanceTurn();
+      await save();return send(res,200,{game:publicGame()});
+    }
+    // SALTA TURNO dalla plancia: salta l'operativo di mano (telefono offline o assente).
+    if(req.method==='POST'&&url.pathname==='/api/skipturn'){
+      if(!game||game.phase!=='active')return send(res,409,{error:'Operazione non attiva.'});
+      const skipped=game.players.find((x)=>x.id===game.activePlayerId);
+      if(skipped) log(`${skipped.name}: turno saltato dalla plancia.`,'system');
+      advanceTurn();
+      await save();return send(res,200,{game:publicGame()});
+    }
+    // CHIUDI ROUND dalla plancia: gli operativi che non hanno ancora giocato perdono il turno,
+    // rispondono subito gli Helix e si apre il round nuovo.
     if(req.method==='POST'&&url.pathname==='/api/resolve'){
       if(!game||game.phase!=='active')return send(res,409,{error:'Operazione non attiva.'});
-      resolveRound();await save();return send(res,200,{game:publicGame()});
+      runEnemyPhase();startNextRound();await save();return send(res,200,{game:publicGame()});
     }
     if(req.method==='POST'&&url.pathname==='/api/reset'){game=null;await save();return send(res,200,{ok:true});}
     return send(res,404,{error:'Endpoint non trovato.'});
@@ -858,5 +865,3 @@ server.listen(PORT,'0.0.0.0',()=>{
   for(const candidate of networkCandidates()) console.log(`  Telefoni: ${candidate}/?mode=player`);
   console.log('');
 });
-
-setInterval(async()=>{ if(tryResolve()) await save(); },1000);

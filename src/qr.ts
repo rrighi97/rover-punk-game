@@ -11,7 +11,7 @@ const ECC_BLOCKS_M = [-1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 
 function utf8(str: string): number[] {
   const out: number[] = [];
   for (const ch of str) {
-    let cp = ch.codePointAt(0)!;
+    const cp = ch.codePointAt(0)!;
     if (cp < 0x80) out.push(cp);
     else if (cp < 0x800) out.push(0xc0 | (cp >> 6), 0x80 | (cp & 0x3f));
     else if (cp < 0x10000) out.push(0xe0 | (cp >> 12), 0x80 | ((cp >> 6) & 0x3f), 0x80 | (cp & 0x3f));
@@ -54,7 +54,7 @@ function rsMultiply(x: number, y: number): number {
 }
 
 function rsDivisor(degree: number): number[] {
-  const result: number[] = new Array(degree).fill(0);
+  const result: number[] = Array(degree).fill(0);
   result[degree - 1] = 1;
   let root = 1;
   for (let i = 0; i < degree; i++) {
@@ -68,7 +68,7 @@ function rsDivisor(degree: number): number[] {
 }
 
 function rsRemainder(data: number[], divisor: number[]): number[] {
-  const result: number[] = new Array(divisor.length).fill(0);
+  const result: number[] = Array(divisor.length).fill(0);
   for (const b of data) {
     const factor = b ^ result.shift()!;
     result.push(0);
@@ -110,7 +110,7 @@ export function qrMatrix(text: string): boolean[][] {
   appendBits(0, (8 - (bb.length % 8)) % 8);
   for (let pad = 0xec; bb.length < capacityBits; pad ^= 0xec ^ 0x11) appendBits(pad, 8);
 
-  const dataCodewords: number[] = new Array(bb.length >>> 3).fill(0);
+  const dataCodewords: number[] = Array(bb.length >>> 3).fill(0);
   bb.forEach((bit, i) => (dataCodewords[i >>> 3] |= bit << (7 - (i & 7))));
 
   // ECC di Reed-Solomon e interleaving dei blocchi.
@@ -137,8 +137,8 @@ export function qrMatrix(text: string): boolean[][] {
   }
 
   // Griglia dei moduli e maschera delle celle funzionali.
-  const modules: boolean[][] = Array.from({ length: size }, () => new Array(size).fill(false));
-  const isFunction: boolean[][] = Array.from({ length: size }, () => new Array(size).fill(false));
+  const modules: boolean[][] = Array.from({ length: size }, () => Array(size).fill(false));
+  const isFunction: boolean[][] = Array.from({ length: size }, () => Array(size).fill(false));
   const setFunc = (x: number, y: number, dark: boolean) => {
     modules[y][x] = dark;
     isFunction[y][x] = true;

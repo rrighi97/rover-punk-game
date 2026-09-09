@@ -1,6 +1,6 @@
 // PLANCIA DI GIOCO
 // La mappa arriva dal server dentro lo stato della partita: qui viene solo disegnata.
-// È generata proceduralmente, quindi la geometria si ricava dalle stanze stesse: ogni stanza
+// È una plancia fissa per missione: la geometria si ricava dalle stanze stesse: ogni stanza
 // occupa una cella (quadrata) o due celle adiacenti (rettangolare, il doppio esatto).
 // I corridoi disegnati sono SOLO le porte reali: due stanze possono essere confinanti e
 // restare separate da un muro cieco, e in quel caso fra loro non compare nessuna linea.
@@ -9,8 +9,8 @@ export type Room = {
   id: string; name: string; col: number; row: number; w?: number; h?: number; links: string[];
   node?: boolean; exit?: boolean; vault?: boolean; cover?: boolean; exposed?: boolean; start?: boolean;
 };
-export type Pawn = { id: string; label: string; name: string; color?: string; down?: boolean; self?: boolean; carrying?: boolean };
-export type Foe = { id: string; label: string; name: string; elite?: boolean; hunting?: boolean };
+export type Pawn = { id: string; label: string; img?: string; name: string; color?: string; down?: boolean; self?: boolean; carrying?: boolean };
+export type Foe = { id: string; label: string; img?: string; name: string; elite?: boolean; hunting?: boolean };
 // Segnalini di scenario e di missione: partenza, nodi, teca, valigetta, punto di consegna.
 export type Marker = { id: string; label: string; name: string; kind: string; done?: boolean };
 
@@ -52,8 +52,8 @@ function corridors(rooms: Room[]) {
 // Etichette d'ambiente: restano testuali perché descrivono la stanza, non un obiettivo.
 function RoomMarks({ room }: { room: Room }) {
   return <div className="tile-marks">
-    {room.cover && <i className="mark cover" title="COPERTURA — l’azione COPERTURA vale +6 scudo in questa stanza">COPERTURA</i>}
-    {room.exposed && <i className="mark exposed" title="ZONA ESPOSTA — chi resta qui a fine round alza l’allarme">ZONA ESPOSTA</i>}
+    {room.cover && <i className="mark cover" title="COPERTURA — ripari e angoli ciechi: sfruttali per muoverti senza farti vedere">COPERTURA</i>}
+    {room.exposed && <i className="mark exposed" title="ZONA ESPOSTA — stanza scoperta: è lì che i presidi vi vedono arrivare">ZONA ESPOSTA</i>}
   </div>;
 }
 
@@ -110,13 +110,13 @@ export default function BoardMap({
             title={mark.name}
             key={mark.id}
           >{mark.label}</span>)}
-          {foes.map((foe) => <span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''}`} title={foe.name} key={foe.id}>{foe.label}</span>)}
+          {foes.map((foe) => <span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''}`} title={foe.name} key={foe.id}>{foe.img ? <img src={foe.img} alt={foe.label} /> : foe.label}</span>)}
           {pawns.map((pawn) => <span
             className={`token pawn ${pawn.down ? 'down' : ''} ${pawn.self ? 'self' : ''} ${pawn.carrying ? 'carrying' : ''}`}
             title={pawn.name}
             style={{ '--unit': pawn.color } as React.CSSProperties}
             key={pawn.id}
-          >{pawn.label}</span>)}
+          >{pawn.img ? <img src={pawn.img} alt={pawn.label} /> : pawn.label}</span>)}
         </div>
       </Tag>;
     })}

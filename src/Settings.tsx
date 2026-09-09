@@ -1,10 +1,13 @@
-import { useCallback, useEffect } from 'react';
-import { Music, Sliders, Volume2, VolumeX, X } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { BookOpen, Database, Music, Power, Sliders, Volume2, VolumeX, X } from 'lucide-react';
 import { useAudio } from './audio';
+import { chapterList } from './Manual';
 
-// Pannello impostazioni: per ora contiene la sezione audio (musica + effetti).
-// Sui telefoni la musica non viene riprodotta — la colonna sonora esce solo dalla plancia —
-// quindi il cursore relativo resta visibile ma disattivato, con la spiegazione.
+type Templates = Parameters<typeof chapterList>[0];
+
+// Pannello impostazioni: due sezioni a schede, ISTRUZIONI (il manuale operativo) e AUDIO
+// (musica + effetti). Sui telefoni la musica non viene riprodotta — la colonna sonora esce
+// solo dalla plancia — quindi il cursore relativo resta visibile ma disattivato, con la spiegazione.
 export function SettingsButton({onOpen,compact}:{onOpen:()=>void;compact?:boolean}){
   return <button className={`settings-btn ${compact?'compact':''}`} onClick={onOpen} title="Impostazioni">
     <Sliders size={14}/>{compact?null:<span>IMPOSTAZIONI</span>}
@@ -21,28 +24,71 @@ function Level({icon,label,hint,value,onChange,disabled}:{icon:React.ReactNode;l
   </div>;
 }
 
-export default function Settings({onClose}:{onClose:()=>void}){
-  const {music,sfx,setMusic,setSfx,musicEnabled,play}=useAudio();
+function AudioSection(){
+  const {music,sfx,setMusic,setSfx,musicEnabled}=useAudio();
+  return <div className="settings-audio">
+    <Level icon={<Music size={17}/>} label="MUSICA" value={music} onChange={setMusic} disabled={!musicEnabled}
+      hint={musicEnabled?'Colonna sonora in loop durante tutta la partita.':'La colonna sonora è riprodotta solo dalla plancia.'}/>
+    <Level icon={<Volume2 size={17}/>} label="EFFETTI SONORI" value={sfx} onChange={setSfx}
+      hint="Comandi, conferme e allarmi dell’interfaccia."/>
+    <p className="settings-note">I livelli sono salvati su questo dispositivo: ogni telefono ha le proprie impostazioni.</p>
+  </div>;
+}
+
+// Sezione SESSIONE: visibile solo dalla plancia in partita (quando arriva onReset).
+// Termina l'operazione in corso e riporta tutti alla configurazione — con conferma esplicita.
+function SessionSection({onReset}:{onReset:()=>void}){
+  const [confirm,setConfirm]=useState(false);
+  return <div className="settings-session">
+    <div className="audio-row">
+      <span className="audio-icon"><Power size={17}/></span>
+      <div className="audio-label"><b>TERMINA OPERAZIONE</b><small>Chiude la partita in corso e riporta plancia e telefoni alla configurazione. Non è reversibile.</small></div>
+    </div>
+    {confirm
+      ? <div className="session-confirm"><span>Terminare davvero l’operazione in corso?</span><div><button className="ghost-btn" data-sfx="back" onClick={()=>setConfirm(false)}>ANNULLA</button><button className="danger-btn" data-sfx="alert" onClick={onReset}>TERMINA ORA</button></div></div>
+      : <button className="danger-btn" data-sfx="alert" onClick={()=>setConfirm(true)}>TERMINA OPERAZIONE</button>}
+  </div>;
+}
+
+function ManualSection({templates,chapterId,onPick}:{templates:Templates;chapterId:string;onPick:(id:string)=>void}){
+  const chapters=chapterList(templates);
+  const chapter=chapters.find((c)=>c.id===chapterId)||chapters[0];
+  return <>
+    <nav className="manual-nav">{chapters.map((c,i)=><button className={c.id===chapter.id?'active':''} onClick={()=>onPick(c.id)} key={c.id}><i>{String(i+1).padStart(2,'0')}</i>{c.icon}<span>{c.label}</span></button>)}</nav>
+    <article className="manual-content" key={chapter.id}>{chapter.content}</article>
+  </>;
+}
+
+export default function Settings({onClose,templates=[],onReset,database}:{onClose:()=>void;templates?:Templates;onReset?:()=>void;database?:React.ReactNode}){
+  const {play}=useAudio();
+  const [tab,setTab]=useState<'istruzioni'|'audio'|'sessione'|'database'>('istruzioni');
+  const [chapterId,setChapterId]=useState('come-si-gioca');
   const close=useCallback(()=>{play('back');onClose();},[play,onClose]);
   useEffect(()=>{
     const onKey=(event:KeyboardEvent)=>{ if(event.key==='Escape') close(); };
     document.addEventListener('keydown',onKey);
     return()=>document.removeEventListener('keydown',onKey);
   },[close]);
+  const manualMode=tab==='istruzioni';
+  const dbMode=tab==='database';
   return <div className="settings-overlay">
     <button className="settings-scrim" aria-label="Chiudi impostazioni" onClick={close}/>
-    <section className="settings-card panel">
+    <section className={`settings-card panel ${manualMode||dbMode?'wide':''}`}>
       <header className="settings-head">
         <div><small>CONFIGURAZIONE SISTEMA</small><b>IMPOSTAZIONI</b></div>
         <button className="icon-btn" data-sfx="back" onClick={close}><X size={18}/></button>
       </header>
-      <div className="settings-body">
-        <div className="panel-kicker">AUDIO</div>
-        <Level icon={<Music size={17}/>} label="MUSICA" value={music} onChange={setMusic} disabled={!musicEnabled}
-          hint={musicEnabled?'Colonna sonora in loop durante tutta la partita.':'La colonna sonora è riprodotta solo dalla plancia.'}/>
-        <Level icon={<Volume2 size={17}/>} label="EFFETTI SONORI" value={sfx} onChange={setSfx}
-          hint="Comandi, conferme e allarmi dell’interfaccia."/>
-        <p className="settings-note">I livelli sono salvati su questo dispositivo: ogni telefono ha le proprie impostazioni.</p>
+      <nav className="settings-tabs">
+        <button className={tab==='istruzioni'?'active':''} onClick={()=>setTab('istruzioni')}><BookOpen size={13}/> ISTRUZIONI</button>
+        <button className={tab==='audio'?'active':''} onClick={()=>setTab('audio')}><Volume2 size={13}/> AUDIO</button>
+        {database&&<button className={tab==='database'?'active':''} onClick={()=>setTab('database')}><Database size={13}/> DATABASE</button>}
+        {onReset&&<button className={tab==='sessione'?'active':''} onClick={()=>setTab('sessione')}><Power size={13}/> SESSIONE</button>}
+      </nav>
+      <div className={`settings-body ${manualMode?'manual-mode':''} ${dbMode?'db-mode':''}`}>
+        {tab==='istruzioni'&&<ManualSection templates={templates} chapterId={chapterId} onPick={setChapterId}/>}
+        {tab==='audio'&&<AudioSection/>}
+        {tab==='sessione'&&onReset&&<SessionSection onReset={onReset}/>}
+        {tab==='database'&&database}
       </div>
       <footer className="settings-foot"><button className="ghost-btn" data-sfx="back" onClick={close}>CHIUDI</button></footer>
     </section>

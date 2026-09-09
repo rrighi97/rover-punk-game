@@ -43,6 +43,7 @@
     "import/no-anonymous-default-export": "warn",
     "react/display-name": "error",
     "react/jsx-no-comment-textnodes": "off",
+    "nextjs/no-img-element": "off",
     "react/no-unescaped-entities": "error",
     "react/react-compiler": "off",
     "react/require-render-return": "error",
