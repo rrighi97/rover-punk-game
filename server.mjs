@@ -1080,7 +1080,7 @@ async function api(req,res,url){
   }
 }
 
-const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.json':'application/json','.mp3':'audio/mpeg','.ogg':'audio/ogg','.wav':'audio/wav','.woff2':'font/woff2'};
+const mime={'.html':'text/html','.js':'text/javascript','.css':'text/css','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.json':'application/json','.webmanifest':'application/manifest+json','.mp3':'audio/mpeg','.ogg':'audio/ogg','.wav':'audio/wav','.woff2':'font/woff2'};
 
 // Avvio del server. Racchiuso in una funzione (e non più eseguito all'import) così `server.mjs`
 // può essere importato come libreria del motore da uno script headless senza far partire HTTP/Vite

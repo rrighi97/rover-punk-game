@@ -12,6 +12,7 @@
     "lint": "oxlint",
     "format": "oxfmt",
     "map:generate": "node scripts/generate-map.mjs",
+    "icons:generate": "node scripts/generate-icons.mjs",
     "sim": "node scripts/simulate.mjs"
   },
   "dependencies": {
