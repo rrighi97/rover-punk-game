@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { BookOpen, Database, Music, Power, Sliders, Volume2, VolumeX, X } from 'lucide-react';
+import { BookOpen, Database, FastForward, Music, Power, SkipForward, Sliders, Volume2, VolumeX, X } from 'lucide-react';
 import { useAudio } from './audio';
 import { chapterList } from './Manual';
 
@@ -35,11 +35,27 @@ function AudioSection(){
   </div>;
 }
 
+// Comandi di partita (solo con operazione attiva): SALTA TURNO e CHIUDI ROUND stanno nella
+// sezione SESSIONE, sopra a TERMINA OPERAZIONE, invece che nella barra in alto della plancia.
+export type GameControls = { turnLabel:string; roundLabel:string; onSkipTurn:()=>void; onForceRound:()=>void };
+
 // Sezione SESSIONE: visibile solo dalla plancia in partita (quando arriva onReset).
 // Termina l'operazione in corso e riporta tutti alla configurazione — con conferma esplicita.
-function SessionSection({onReset}:{onReset:()=>void}){
+function SessionSection({onReset,controls}:{onReset:()=>void;controls?:GameControls}){
   const [confirm,setConfirm]=useState(false);
   return <div className="settings-session">
+    {controls&&<>
+      <div className="audio-row session-row">
+        <span className="audio-icon"><SkipForward size={17}/></span>
+        <div className="audio-label"><b>SALTA TURNO</b><small>Passa la mano all’operativo successivo (telefono offline o giocatore assente). {controls.turnLabel}</small></div>
+        <button className="ghost-btn" data-sfx="confirm" onClick={controls.onSkipTurn}>SALTA TURNO</button>
+      </div>
+      <div className="audio-row session-row">
+        <span className="audio-icon"><FastForward size={17}/></span>
+        <div className="audio-label"><b>CHIUDI ROUND</b><small>Chi non ha ancora giocato perde il turno, rispondono subito gli Helix e si apre il round nuovo. {controls.roundLabel}</small></div>
+        <button className="ghost-btn" data-sfx="confirm" onClick={controls.onForceRound}>CHIUDI ROUND</button>
+      </div>
+    </>}
     <div className="audio-row">
       <span className="audio-icon"><Power size={17}/></span>
       <div className="audio-label"><b>TERMINA OPERAZIONE</b><small>Chiude la partita in corso e riporta plancia e telefoni alla configurazione. Non è reversibile.</small></div>
@@ -59,7 +75,7 @@ function ManualSection({templates,chapterId,onPick}:{templates:Templates;chapter
   </>;
 }
 
-export default function Settings({onClose,templates=[],onReset,database}:{onClose:()=>void;templates?:Templates;onReset?:()=>void;database?:React.ReactNode}){
+export default function Settings({onClose,templates=[],onReset,database,controls}:{onClose:()=>void;templates?:Templates;onReset?:()=>void;database?:React.ReactNode;controls?:GameControls}){
   const {play}=useAudio();
   const [tab,setTab]=useState<'istruzioni'|'audio'|'sessione'|'database'>('istruzioni');
   const [chapterId,setChapterId]=useState('come-si-gioca');
@@ -87,7 +103,7 @@ export default function Settings({onClose,templates=[],onReset,database}:{onClos
       <div className={`settings-body ${manualMode?'manual-mode':''} ${dbMode?'db-mode':''}`}>
         {tab==='istruzioni'&&<ManualSection templates={templates} chapterId={chapterId} onPick={setChapterId}/>}
         {tab==='audio'&&<AudioSection/>}
-        {tab==='sessione'&&onReset&&<SessionSection onReset={onReset}/>}
+        {tab==='sessione'&&onReset&&<SessionSection onReset={onReset} controls={controls}/>}
         {tab==='database'&&database}
       </div>
       <footer className="settings-foot"><button className="ghost-btn" data-sfx="back" onClick={close}>CHIUDI</button></footer>

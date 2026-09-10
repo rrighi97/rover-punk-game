@@ -73,6 +73,47 @@ export function playSfx(name:SfxName){
   }
 }
 
+// Sirena d'allarme: ululato che sale e scende per `duration` secondi. Passa dal master degli
+// effetti, quindi segue il volume EFFETTI anche se lo si cambia mentre suona. Una sirena nuova
+// spegne quella precedente (più rinforzi in coda non si sovrappongono).
+let siren:{osc:OscillatorNode[];gain:GainNode}|null=null;
+
+export function playSiren(duration=5){
+  if(sfxVolume<=0) return;
+  const audio=engine(); if(!audio) return;
+  resume();
+  if(siren){ const old=siren; siren=null; try{ old.gain.gain.cancelScheduledValues(0); old.gain.gain.value=0; old.osc.forEach((o)=>o.stop()); }catch{/* già fermata */} }
+  const {context:ctx}=audio;
+  const now=ctx.currentTime;
+  const end=now+duration;
+  const cycle=1.1; // secondi per una salita + discesa
+  const gain=ctx.createGain();
+  gain.gain.setValueAtTime(0.0001,now);
+  gain.gain.exponentialRampToValueAtTime(0.13,now+0.08);
+  gain.gain.setValueAtTime(0.13,end-0.35);
+  gain.gain.exponentialRampToValueAtTime(0.0001,end);
+  const filter=ctx.createBiquadFilter();
+  filter.type='lowpass';filter.frequency.value=2600;
+  filter.connect(gain);gain.connect(audio.master);
+  const osc=(['sawtooth','square'] as OscillatorType[]).map((wave,i)=>{
+    const o=ctx.createOscillator();
+    o.type=wave;
+    const detune=i?1.006:1;
+    o.frequency.setValueAtTime(620*detune,now);
+    for(let t=now;t<end;t+=cycle){
+      o.frequency.linearRampToValueAtTime(1180*detune,Math.min(end,t+cycle/2));
+      o.frequency.linearRampToValueAtTime(620*detune,Math.min(end,t+cycle));
+    }
+    const voice=ctx.createGain();voice.gain.value=i?0.35:0.65;
+    o.connect(voice);voice.connect(filter);
+    o.start(now);o.stop(end+0.05);
+    return o;
+  });
+  const current={osc,gain};
+  siren=current;
+  osc[0].onended=()=>{ if(siren===current) siren=null; };
+}
+
 // ---- contesto React ------------------------------------------------------------------
 type AudioApi = { music:number; sfx:number; setMusic:(v:number)=>void; setSfx:(v:number)=>void; play:(name:SfxName)=>void; musicEnabled:boolean };
 const AudioContextApi=createContext<AudioApi>({music:defaults.music,sfx:defaults.sfx,setMusic:()=>{},setSfx:()=>{},play:()=>{},musicEnabled:false});

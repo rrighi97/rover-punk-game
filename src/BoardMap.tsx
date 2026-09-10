@@ -5,6 +5,9 @@
 // I corridoi disegnati sono SOLO le porte reali: due stanze possono essere confinanti e
 // restare separate da un muro cieco, e in quel caso fra loro non compare nessuna linea.
 
+import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
+
 export type Room = {
   id: string; name: string; col: number; row: number; w?: number; h?: number; links: string[];
   node?: boolean; exit?: boolean; vault?: boolean; cover?: boolean; exposed?: boolean; start?: boolean;
@@ -49,11 +52,24 @@ function corridors(rooms: Room[]) {
   return out;
 }
 
+// TOOLTIP ISTANTANEO
+// Il `title` nativo del browser compare solo dopo un ritardo: segnalini e etichette usano invece
+// un riquadro proprio, mostrato subito al passaggio del mouse (come il pannello ALLARME). Vive in
+// un portal su <body> perché le stanze hanno overflow e clip-path che lo taglierebbero. Solo mouse:
+// sui telefoni un tocco su un segnalino non deve lasciare un riquadro appeso.
+type TipTone = 'pawn' | 'foe' | 'mark';
+type Tip = { key: string; x: number; y: number; below: boolean };
+type Hover = (key: string, text: string, tone: TipTone, color?: string) => {
+  'aria-label': string;
+  onPointerEnter: (e: React.PointerEvent<HTMLElement>) => void;
+  onPointerLeave: () => void;
+};
+
 // Etichette d'ambiente: restano testuali perché descrivono la stanza, non un obiettivo.
-function RoomMarks({ room }: { room: Room }) {
+function RoomMarks({ room, hover }: { room: Room; hover: Hover }) {
   return <div className="tile-marks">
-    {room.cover && <i className="mark cover" title="COPERTURA — ripari e angoli ciechi: sfruttali per muoverti senza farti vedere">COPERTURA</i>}
-    {room.exposed && <i className="mark exposed" title="ZONA ESPOSTA — stanza scoperta: è lì che i presidi vi vedono arrivare">ZONA ESPOSTA</i>}
+    {room.cover && <i className="mark cover" {...hover(`${room.id}:cover`, 'COPERTURA — ripari e angoli ciechi: sfruttali per muoverti senza farti vedere', 'mark')}>COPERTURA</i>}
+    {room.exposed && <i className="mark exposed" {...hover(`${room.id}:exposed`, 'ZONA ESPOSTA — stanza scoperta: è lì che i presidi vi vedono arrivare', 'mark')}>ZONA ESPOSTA</i>}
   </div>;
 }
 
@@ -71,6 +87,23 @@ export default function BoardMap({
   onPick?: (roomId: string) => void;
 }) {
   const { boxOf, centerOf } = geometry(rooms);
+  const [tip, setTip] = useState<Tip | null>(null);
+  // Testi raccolti a ogni render: il riquadro mostra sempre i dati aggiornati (HP, stato) e
+  // sparisce da solo se il segnalino sotto il mouse cambia stanza o esce di scena.
+  const tips = new Map<string, { text: string; tone: TipTone; color?: string }>();
+  const hover: Hover = (key, text, tone, color) => {
+    tips.set(key, { text, tone, color });
+    return {
+      'aria-label': text,
+      onPointerEnter: (e) => {
+        if (e.pointerType !== 'mouse') return;
+        const r = e.currentTarget.getBoundingClientRect();
+        const below = r.top < 150;
+        setTip({ key, x: r.left + r.width / 2, y: below ? r.bottom : r.top, below });
+      },
+      onPointerLeave: () => setTip((t) => (t?.key === key ? null : t)),
+    };
+  };
   return <div className={`board-map ${variant}`}>
     <svg className="map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
       {/* Due passate sullo stesso tracciato: la fascia scura è il corridoio, la linea sottile la sua guida luminosa. */}
@@ -103,17 +136,17 @@ export default function BoardMap({
         {...(onPick && reachable ? { onClick: () => onPick(room.id), type: 'button' as const } : {})}
       >
         <header><b>{room.id}</b><small>{room.name}</small></header>
-        <RoomMarks room={room} />
+        <RoomMarks room={room} hover={hover} />
         <div className="tokens">
           {marks.map((mark) => <span
             className={`token mark-token ${mark.kind} ${mark.done ? 'done' : ''}`}
-            title={mark.name}
+            {...hover(`${room.id}:mark:${mark.id}`, mark.name, 'mark')}
             key={mark.id}
           >{mark.label}</span>)}
-          {foes.map((foe) => <span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''}`} title={foe.name} key={foe.id}>{foe.img ? <img src={foe.img} alt={foe.label} /> : foe.label}</span>)}
+          {foes.map((foe) => <span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''}`} {...hover(`${room.id}:foe:${foe.id}`, foe.name, 'foe')} key={foe.id}>{foe.img ? <img src={foe.img} alt={foe.label} /> : foe.label}</span>)}
           {pawns.map((pawn) => <span
             className={`token pawn ${pawn.down ? 'down' : ''} ${pawn.self ? 'self' : ''} ${pawn.carrying ? 'carrying' : ''}`}
-            title={pawn.name}
+            {...hover(`${room.id}:pawn:${pawn.id}`, pawn.name, 'pawn', pawn.color)}
             style={{ '--unit': pawn.color } as React.CSSProperties}
             key={pawn.id}
           >{pawn.img ? <img src={pawn.img} alt={pawn.label} /> : pawn.label}</span>)}
@@ -121,5 +154,18 @@ export default function BoardMap({
       </Tag>;
     })}
     {variant === 'board' && <div className="scanline" />}
+    <MapTip tip={tip} content={tip ? tips.get(tip.key) : undefined} onStale={() => setTip(null)} />
   </div>;
+}
+
+function MapTip({ tip, content, onStale }: { tip: Tip | null; content?: { text: string; tone: TipTone; color?: string }; onStale: () => void }) {
+  const stale = Boolean(tip && !content);
+  useEffect(() => { if (stale) onStale(); }, [stale, onStale]);
+  if (!tip || !content) return null;
+  const x = Math.max(160, Math.min(window.innerWidth - 160, tip.x));
+  return createPortal(<div
+    className={`map-tip ${content.tone} ${tip.below ? 'below' : ''}`}
+    role="tooltip"
+    style={{ left: x, top: tip.y, ...(content.color ? { '--tip': content.color } : {}) } as React.CSSProperties}
+  >{content.text}</div>, document.body);
 }

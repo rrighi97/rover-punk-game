@@ -21,16 +21,18 @@ const LINK_TIMEOUT = 15000;
 // finito rispondono gli Helix. Nessun timer: se un telefono è offline il suo turno lo salta
 // la plancia con SALTA TURNO.
 const ALARM_START = 15;            // allarme iniziale
-// L'allarme ha una sola leva di salita: il respiro della torre, +3 a ogni round. Nessun
+// L'allarme ha una sola leva di salita: il respiro della torre, +4 a ogni round. Nessun
 // picco secco (stacco carico, PURGA, Sovraccarico cromo, sganciamento) e nessuna pressione
 // da contatto/zona esposta/carico. L'unica cosa che lo abbassa è l'Identità sintetica di ECHO.
-const ALARM_PER_ROUND = 3;         // pressione base di ogni round
+const ALARM_PER_ROUND = 4;         // pressione base di ogni round
 const ALARM_FACE_RELIEF = 5;       // Identità sintetica del FACE
 const LOCKDOWN_ALARM = 80;         // oltre questa soglia la torre allerta ogni presidio: tutti convergono sui Player
 const ALARM_SPAWN_THRESHOLDS = [25, 35, 45, 55, 65, 75]; // a ogni soglia una nuova unità entra in una stanza a caso e parte a caccia
 const NODES_REQUIRED = 2;          // nodi da violare per sbloccare la teca
 const ACTIONS_PER_TURN = 2;        // azioni (non manovra) giocabili in un turno
 const REVIVE_RATIO = 0.25;
+const HEAL_AMOUNT = 12;            // RIPRISTINO sul compagno più ferito — allineato a src/App.tsx
+const HACK_DRONE_DAMAGE = 10;      // INTRUSIONE colpisce anche un drone nella stanza — allineato a src/App.tsx
 const LAZARUS_RATIO = 0.4;
 
 // TARATURA PER DIMENSIONE SQUADRA
@@ -572,7 +574,7 @@ function applyAction(p,action){
       else {
         breachNode(p.room,p.name);
         const drone=hostiles.find((e)=>e.type==='DRONE');
-        if(drone) damageEnemy(drone,10,p.name);
+        if(drone) damageEnemy(drone,HACK_DRONE_DAMAGE,p.name);
       }
     }
 
@@ -585,7 +587,7 @@ function applyAction(p,action){
         const wounded=[...alliesIn(p.room)].sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp)[0];
         if(!wounded){ log(`${p.name} non ha nessuno da curare in ${p.room}.`,'system'); }
         else{
-          const amount=12;
+          const amount=HEAL_AMOUNT;
           wounded.hp=Math.min(wounded.maxHp,wounded.hp+amount);
           log(`${p.name} ripristina ${amount} integrità a ${wounded.name} in ${p.room}.`,'success');
         }
@@ -681,7 +683,7 @@ function resolveEnemies(){
 function runEnemyPhase() {
   resolveEnemies();
 
-  // L'allarme sale solo del respiro della torre: +3 a ogni round, nient'altro.
+  // L'allarme sale solo del respiro della torre: +4 a ogni round, nient'altro.
   game.alarm=Math.min(100,game.alarm+ALARM_PER_ROUND);
   game.breach=breachCount();
   game.round+=1;

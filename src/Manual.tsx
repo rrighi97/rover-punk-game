@@ -297,11 +297,11 @@ export const chapterList=(templates:Template[])=>[
       <table className="manual-table">
         <thead><tr><th>Cosa lo fa salire</th><th>Cosa lo fa scendere</th></tr></thead>
         <tbody>
-          <tr><td>Il respiro della torre: <b>+3</b> a ogni round, sempre. Nient’altro.</td><td>Identità sintetica del FACE: <b>−5</b> su tutto il livello.</td></tr>
+          <tr><td>Il respiro della torre: <b>+4</b> a ogni round, sempre. Nient’altro.</td><td>Identità sintetica del FACE: <b>−5</b> su tutto il livello.</td></tr>
         </tbody>
       </table>
-      <div className="manual-callout"><AlertTriangle size={16}/><p>L’allarme adesso è una clessidra semplice: <b>+3 a round</b> e basta. Da 15% avete un margine largo — la pressione vera sono i <b>presidi</b> che vi trascinate dietro e i <b>rinforzi</b> ai round 5 e 9, non l’ago sulla plancia.</p></div>
-      <div className="manual-callout"><Timer size={16}/><p>Conto della serva: da 15%, a <b>+3 per round</b>, la saturazione arriva verso il <b>ventottesimo round</b>. Nessuna partita dovrebbe durare tanto: se ci arrivate, il problema non è l’allarme, è che siete rimasti impigliati nei combattimenti.</p></div>
+      <div className="manual-callout"><AlertTriangle size={16}/><p>L’allarme adesso è una clessidra semplice: <b>+4 a round</b> e basta. Da 15% avete un margine largo — la pressione vera sono i <b>presidi</b> che vi trascinate dietro e i <b>rinforzi</b> ai round 5 e 9, non l’ago sulla plancia.</p></div>
+      <div className="manual-callout"><Timer size={16}/><p>Conto della serva: da 15%, a <b>+4 per round</b>, la saturazione arriva verso il <b>ventiduesimo round</b>. Nessuna partita dovrebbe durare tanto: se ci arrivate, il problema non è l’allarme, è che siete rimasti impigliati nei combattimenti.</p></div>
     </>,
   },
   {
