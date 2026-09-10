@@ -36,6 +36,20 @@ function shuffle(list) {
 }
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
+// PORTE: ogni porta (collegamento fra due stanze) parte aperta o chiusa. Almeno metà delle porte
+// della plancia è chiusa di default — bloccano il passaggio finché un operativo non le sblocca
+// con l'azione SBLOCCA PORTA. La scelta di quali sono chiuse è casuale ma fissata una volta sola
+// qui in fase di generazione: da lì in poi il `layout` stampato è statico come tutto il resto.
+function assignDoorStates(doorIdPairs) {
+  const keys = doorIdPairs.map(([a, b]) => [a, b].sort().join('-'));
+  const shuffled = shuffle(keys);
+  const closedCount = Math.ceil(shuffled.length / 2);
+  const closed = new Set(shuffled.slice(0, closedCount));
+  const out = {};
+  for (const key of keys) if (closed.has(key)) out[key] = true;
+  return out;
+}
+
 // Passo 1: riempie la griglia con stanze da 1 o 2 celle, senza buchi e senza sovrapposizioni.
 function fillGrid() {
   const grid = Array.from({ length: GRID_ROWS + 2 }, () => Array(GRID_COLS + 2).fill(null));
@@ -130,7 +144,10 @@ function buildMap(roomNames) {
   for (const room of leftovers.slice(0, 2)) room.exposed = true;
   for (const room of leftovers.slice(2)) room.cover = true;
 
-  return { rooms, startRoom: start.id, vaultRoom: vault.id, dropRoom: drop.id, nodeRooms: rooms.filter((r) => r.node).map((r) => r.id) };
+  const doorIdPairs = [...doors].map((d) => { const [a, b] = d.split('|'); return [byKey.get(a).id, byKey.get(b).id]; });
+  const doorStates = assignDoorStates(doorIdPairs);
+
+  return { rooms, startRoom: start.id, vaultRoom: vault.id, dropRoom: drop.id, nodeRooms: rooms.filter((r) => r.node).map((r) => r.id), doors: doorStates };
 }
 
 function validate(layout) {
@@ -177,4 +194,5 @@ if (roomNames.length < 16) {
 const layout = bestOf(roomNames, tries);
 const v = validate(layout);
 console.error(`// ${v.count} stanze · distanza partenza→obiettivo ${v.distVault} · partenza→consegna ${v.distDrop} · obiettivo→consegna ${v.distVaultDrop}`);
-console.log(`layout: {\n  rooms: [\n${layout.rooms.map((r) => `    ${roomToJs(r)},`).join('\n')}\n  ],\n  startRoom: '${layout.startRoom}', vaultRoom: '${layout.vaultRoom}', dropRoom: '${layout.dropRoom}',\n  nodeRooms: [${layout.nodeRooms.map((id) => `'${id}'`).join(', ')}],\n},`);
+const doorsJs = Object.keys(layout.doors).map((k) => `'${k}':true`).join(',');
+console.log(`layout: {\n  rooms: [\n${layout.rooms.map((r) => `    ${roomToJs(r)},`).join('\n')}\n  ],\n  startRoom: '${layout.startRoom}', vaultRoom: '${layout.vaultRoom}', dropRoom: '${layout.dropRoom}',\n  nodeRooms: [${layout.nodeRooms.map((id) => `'${id}'`).join(', ')}],\n  doors: {${doorsJs}},\n},`);

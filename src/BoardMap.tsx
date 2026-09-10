@@ -74,12 +74,15 @@ function RoomMarks({ room, hover }: { room: Room; hover: Hover }) {
 }
 
 export default function BoardMap({
-  rooms, pawnsIn, foesIn, marksIn, variant = 'board', highlight = [], selected, currentRoom, onPick,
+  rooms, pawnsIn, foesIn, marksIn, doors, variant = 'board', highlight = [], selected, currentRoom, onPick,
 }: {
   rooms: Room[];
   pawnsIn: (roomId: string) => Pawn[];
   foesIn: (roomId: string) => Foe[];
   marksIn?: (roomId: string) => Marker[];
+  // Porte chiuse della plancia: chiave `id1-id2` (ordine alfabetico) -> true se chiusa. Una
+  // porta assente dalla mappa è aperta. Disegnata in verde (aperta) o rosso (chiusa).
+  doors?: Record<string, boolean>;
   variant?: 'board' | 'mini';
   highlight?: string[];
   selected?: string;
@@ -110,7 +113,8 @@ export default function BoardMap({
       {['walls', 'guide'].map((layer) => <g className={`corridor-${layer}`} key={layer}>
         {corridors(rooms).map(({ key, a, b }) => {
           const from = centerOf(a), to = centerOf(b);
-          return <line key={key} x1={from.x} y1={from.y} x2={to.x} y2={to.y} vectorEffect="non-scaling-stroke" />;
+          const closed = Boolean(doors?.[key]);
+          return <line key={key} className={closed ? 'door-closed' : 'door-open'} x1={from.x} y1={from.y} x2={to.x} y2={to.y} vectorEffect="non-scaling-stroke" />;
         })}
       </g>)}
     </svg>

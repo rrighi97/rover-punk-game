@@ -64,6 +64,17 @@ const HOSTAGE_UNESCORTED_DAMAGE = 18; // danno subito se lasciato solo con ostil
 // file — e si incolla il `layout` stampato qui sotto: non è più il motore di gioco a disegnarla
 // a ogni partita.
 
+// PORTE
+// Ogni collegamento fra due stanze (`links`) è anche una porta, aperta o chiusa. Lo stato
+// iniziale (almeno metà delle porte chiuse) è fissato nel `layout.doors` di ogni missione
+// (chiave = id stanze in ordine alfabetico unite da '-', valore true = chiusa). Lo stato di
+// gioco (`game.doors`) parte come copia di quello e cambia solo con l'azione SBLOCCA PORTA:
+// una porta chiusa blocca il passaggio finché un operativo non la sblocca da una delle due
+// stanze adiacenti (non serve attraversarla per sbloccarla). Riguarda solo gli operativi: i
+// presidi Helix non ne sono mai fermati.
+const doorKey = (a, b) => [a, b].sort().join('-');
+const doorClosed = (a, b) => Boolean(game.doors?.[doorKey(a, b)]);
+
 // Distanze in numero di porte da una stanza a tutte le altre (BFS sul grafo delle porte).
 function distanceMap(rooms, origin) {
   const byId = new Map(rooms.map((r) => [r.id, r]));
@@ -185,6 +196,7 @@ const MISSIONS = {
       ],
       startRoom: 'A10', vaultRoom: 'C11', dropRoom: 'A01',
       nodeRooms: ['B02', 'C03', 'D09'],
+      doors: {'A01-B02':true,'A05-B02':true,'C03-D04':true,'A05-C06':true,'D07-D09':true,'D09-D12':true},
     },
     narrative(layout, roomName) {
       return {
@@ -224,6 +236,7 @@ const MISSIONS = {
       ],
       startRoom: 'A07', vaultRoom: 'D13', dropRoom: 'D06',
       nodeRooms: ['C02', 'C05', 'B11'],
+      doors: {'A01-A03':true,'C02-D06':true,'A03-A07':true,'B04-C05':true,'B04-B08':true,'C09-D10':true,'B11-C12':true},
     },
     narrative(layout, roomName) {
       return {
@@ -263,6 +276,7 @@ const MISSIONS = {
       ],
       startRoom: 'A10', vaultRoom: 'C03', dropRoom: 'D04',
       nodeRooms: ['A01', 'B02', 'C12'],
+      doors: {'A01-A05':true,'B02-C03':true,'A05-A08':true,'C06-D07':true,'C12-D07':true,'B09-B11':true,'B11-C12':true},
     },
     narrative(layout, roomName) {
       return {
@@ -295,6 +309,8 @@ if (game) for (const p of game.players) if (p.move === undefined) p.move = null;
 if (game && !game.missionId) game.missionId = 'valigetta';
 // Picchi d'allarme: le partite vecchie non tracciano quali soglie hanno già generato un'unità.
 if (game && !Array.isArray(game.alarmSpawns)) game.alarmSpawns = [];
+// Porte: le partite salvate prima di questo sistema non hanno stato porte (tutte aperte).
+if (game && !game.doors) game.doors = {};
 
 const nowTime = () => new Date().toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
 const makeCode = () => `${['NEON','VOID','NOVA','GRID'][Math.floor(Math.random()*4)]}-${Math.floor(10+Math.random()*90)}`;
@@ -363,7 +379,7 @@ function createGame(body) {
     missionId:mission.id, title:mission.title, location:`HELIX TOWER // SETTORE ${['NORD','SUD','EST','OVEST'][Math.floor(Math.random()*4)]}`,
     objective:narrative.objective, narrative,
     map:layout.rooms, startRoom:layout.startRoom, vaultRoom:layout.vaultRoom, dropRoom:layout.dropRoom,
-    nodeRooms:layout.nodeRooms, nodesRequired:NODES_REQUIRED,
+    nodeRooms:layout.nodeRooms, nodesRequired:NODES_REQUIRED, doors:layout.doors||{},
     nodes:Object.fromEntries(layout.nodeRooms.map((id)=>[id,false])),
     caseRoom:layout.vaultRoom, caseHolder:null, caseDelivered:false, purged:false, lockdown:false,
     hostage:{room:layout.vaultRoom, holder:null, hp:HOSTAGE_MAX_HP, maxHp:HOSTAGE_MAX_HP, freed:false, delivered:false},
@@ -422,6 +438,10 @@ function applyMove(p){
   const destination=p.move.roomId;
   if(!roomById(p.room).links.includes(destination)){
     log(`${p.name} non trova una porta verso ${destination}: resta in ${p.room}.`,'system');
+    return;
+  }
+  if(doorClosed(p.room,destination)){
+    log(`${p.name} trova la porta verso ${destination} bloccata: va sbloccata prima di passare.`,'system');
     return;
   }
   const guards=enemiesIn(p.room);
@@ -488,6 +508,16 @@ function applyAction(p,action){
         game.hostage.holder=p.id;game.hostage.freed=true;
         if(fresh) log(`${p.name} libera l’informatore.`,'danger');
         else log(`${p.name} riprende la scorta dell’informatore in ${roomLabel(p.room)}.`,'success');
+      }
+    }
+
+    if(action.type==='unlock'){
+      const doorRoom=action.roomId;
+      if(!doorRoom||!room.links.includes(doorRoom)) log(`${p.name}: nessuna porta verso ${doorRoom||'?'} da ${p.room}.`,'system');
+      else if(!doorClosed(p.room,doorRoom)) log(`${p.name}: la porta verso ${roomLabel(doorRoom)} è già aperta.`,'system');
+      else{
+        game.doors[doorKey(p.room,doorRoom)]=false;
+        log(`${p.name} sblocca la porta fra ${roomLabel(p.room)} e ${roomLabel(doorRoom)}.`,'hack');
       }
     }
 
@@ -786,12 +816,13 @@ async function api(req,res,url){
       const body=await jsonBody(req);if(!game||body.code!==game.code||game.phase!=='active')return send(res,409,{error:'Operazione non attiva.'});
       const p=game.players.find((x)=>x.id===body.playerId&&x.deviceId===body.deviceId);if(!p||!alive(p))return send(res,403,{error:'Accesso operativo negato.'});
       if(game.activePlayerId!==p.id)return send(res,409,{error:'Non è il tuo turno.'});
-      const allowed=['move','attack','hack','heal','ability','grab','purge','free'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
+      const allowed=['move','attack','hack','heal','ability','grab','purge','free','unlock'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
       // MANOVRA: nel proprio turno si può fare una sola manovra (prima o dopo l'azione).
       // Si risolve subito: l'operativo si sposta davvero e può subire il fuoco di sganciamento.
       if(body.type==='move'){
         if(p.move)return send(res,409,{error:'Manovra già eseguita in questo turno.'});
         if(!roomById(p.room).links.includes(body.roomId))return send(res,400,{error:'Nessuna porta collega la tua stanza a quella.'});
+        if(doorClosed(p.room,body.roomId))return send(res,400,{error:'Quella porta è bloccata: sbloccala prima di passare.'});
         p.move={roomId:body.roomId};p.lastSeen=Date.now();
         applyMove(p);
         await save();return send(res,200,{game:publicGame()});
@@ -815,6 +846,8 @@ async function api(req,res,url){
       if(body.type==='free'&&game.hostage.holder)return send(res,400,{error:'L’informatore è già scortato da un compagno.'});
       if(body.type==='free'&&hostageRoomNow()!==actRoom)return send(res,400,{error:'L’informatore non è in questa stanza.'});
       if(body.type==='free'&&!game.hostage.freed&&actRoom===game.vaultRoom&&!vaultOpen())return send(res,400,{error:`Cella sigillata: violate ${game.nodesRequired} nodi.`});
+      if(body.type==='unlock'&&!roomById(actRoom).links.includes(body.roomId))return send(res,400,{error:'Nessuna porta verso quella stanza.'});
+      if(body.type==='unlock'&&!doorClosed(actRoom,body.roomId))return send(res,400,{error:'Quella porta è già aperta.'});
       const action={type:body.type,targetId:body.targetId||null,roomId:body.roomId||null};
       p.actions.push(action);p.lastSeen=Date.now();
       applyAction(p,action);
