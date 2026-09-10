@@ -819,6 +819,11 @@ async function api(req,res,url){
     if(req.method==='GET'&&url.pathname==='/api/state'){
       return send(res,200,{game:publicGame(),templates,enemyRoster:ENEMY_ROSTER,missions:missionList(),networkUrl:getNetworkUrl(),networkUrls:networkCandidates()});
     }
+    // Livello d'allarme in testo semplice (0-100), o -1 se nessuna partita: lo legge il ponte seriale dell'Arduino.
+    if(req.method==='GET'&&url.pathname==='/api/alarm'){
+      res.writeHead(200,{'Content-Type':'text/plain','Cache-Control':'no-store','Access-Control-Allow-Origin':'*'});
+      return res.end(String(game?Math.round(game.alarm):-1));
+    }
     if(req.method==='POST'&&url.pathname==='/api/setup'){
       const body=await jsonBody(req);
       if(!Array.isArray(body.players)||body.players.length<2||body.players.length>6)return send(res,400,{error:'Servono da 2 a 6 giocatori.'});
