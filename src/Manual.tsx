@@ -171,9 +171,9 @@ export const chapterList=(templates:Template[])=>[
     id:'plancia', label:'LA PLANCIA', icon:<Map size={15}/>,
     content:<>
       <h2>La plancia della missione</h2>
-      <p>Ogni missione ha il <b>suo tema</b> (nomi delle stanze, presidio, obiettivo), ma la plancia viene disegnata da zero <b>a ogni partita</b>: anche rigiocando la stessa missione la mappa non è mai identica. Porte, posizione di teca, nodi e punto di consegna cambiano di conseguenza; il briefing mostra solo la legenda degli elementi, non la loro posizione reale.</p>
+      <p>Ogni missione ha la <b>sua plancia fissa</b>: stessa mappa a ogni partita. Nomi delle stanze, porte, posizione di teca, nodi e punto di consegna sono quelli mostrati nel briefing. Cambiare missione cambia la mappa.</p>
       <h3>Stanze quadrate e rettangolari</h3>
-      <p>Il livello è una griglia di celle. Una stanza occupa <b>una cella</b> (quadrata) oppure <b>due celle adiacenti</b> (rettangolare, quindi <b>esattamente il doppio</b> di una quadrata), in orizzontale o in verticale. Una plancia ha in genere <b>10–14 stanze</b>, di cui alcune rettangolari: il numero esatto varia a ogni partita.</p>
+      <p>Il livello è una griglia di celle. Una stanza occupa <b>una cella</b> (quadrata) oppure <b>due celle adiacenti</b> (rettangolare, quindi <b>esattamente il doppio</b> di una quadrata), in orizzontale o in verticale. Una plancia ha <b>12–13 stanze</b>, di cui alcune rettangolari.</p>
       <p>La dimensione è puramente architettonica: una stanza grande <b>non</b> ospita più gente né dà bonus. Serve a rendere la pianta credibile e a spostare le distanze.</p>
       <h3>Vicine non vuol dire collegate</h3>
       <p>Questa è la regola che rende la plancia un labirinto: <b>due stanze possono condividere un muro e non avere nessuna porta</b>. Sulla plancia si vede a colpo d’occhio, perché fra loro non c’è nessun corridoio disegnato.</p>
@@ -372,7 +372,7 @@ export const chapterList=(templates:Template[])=>[
         <dt>La console del telefono è illeggibile</dt>
         <dd>Ruota il dispositivo in <b>orizzontale</b> e disattiva il blocco rotazione.</dd>
         <dt>Vogliamo una mappa diversa</dt>
-        <dd>Basta una nuova operazione: la plancia si ridisegna da zero a ogni partita, anche restando sulla stessa missione. Dalla plancia premi <b>TERMINA</b> (o <b>RICOMPONI SQUADRA</b> dalla lobby) e crea un nuovo canale.</dd>
+        <dd>Ogni missione ha la sua plancia fissa: dalla plancia premi <b>TERMINA</b> (o <b>RICOMPONI SQUADRA</b> dalla lobby), crea un nuovo canale e scegli un’altra missione.</dd>
       </dl>
     </>,
   },

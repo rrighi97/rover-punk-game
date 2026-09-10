@@ -55,14 +55,14 @@ const HOSTAGE_MAX_HP = 70;
 const HOSTAGE_UNESCORTED_DAMAGE = 18; // danno subito se lasciato solo con ostili
 
 // PLANCE DELLE MISSIONI
-// La mappa è procedurale: ogni missione ha un proprio tema (pool di nomi di stanza, presidio),
-// ma la plancia viene disegnata da zero a ogni partita su una griglia di celle — anche
-// rigiocando la stessa missione la mappa non è mai la stessa. Una stanza occupa una cella
-// (quadrata) o due celle adiacenti (rettangolare). Le stanze fisicamente vicine NON sono
-// automaticamente collegate: un albero di copertura garantisce che tutto sia raggiungibile,
-// poi solo una parte dei muri restanti diventa una porta — il resto sono pareti cieche. Il
-// presidio (chi guardia cosa) resta quello della missione: si sposta con teca/nodi ovunque
-// finiscano su questa plancia, ma la composizione non cambia da partita a partita.
+// La mappa non è procedurale: ogni missione ha una plancia fissa in `MISSIONS[...].layout`,
+// sempre la stessa a ogni partita. `createGame` la clona con `structuredClone` senza
+// modificarla. Una stanza occupa una cella (quadrata) o due celle adiacenti (rettangolare).
+// Le stanze fisicamente vicine NON sono automaticamente collegate: contano solo le porte
+// elencate in `links`. Per generare la plancia di una missione nuova (o rigenerare una
+// esistente) si usa una tantum `scripts/generate-map.mjs` — vedi il commento in testa a quel
+// file — e si incolla il `layout` stampato qui sotto: non è più il motore di gioco a disegnarla
+// a ogni partita.
 
 // Distanze in numero di porte da una stanza a tutte le altre (BFS sul grafo delle porte).
 function distanceMap(rooms, origin) {
@@ -76,125 +76,6 @@ function distanceMap(rooms, origin) {
     }
   }
   return dist;
-}
-
-const GRID_COLS = 4;
-const GRID_ROWS = 4;
-const DOUBLE_ROOM_CHANCE = 0.6;    // quanto spesso una stanza diventa rettangolare (due celle)
-const EXTRA_DOOR_CHANCE = 0.28;    // quanti muri in più (oltre all'albero) diventano porte
-
-function shuffle(list) {
-  const out = [...list];
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [out[i], out[j]] = [out[j], out[i]];
-  }
-  return out;
-}
-const pick = (list) => list[Math.floor(Math.random() * list.length)];
-
-// Passo 1: riempie la griglia con stanze da 1 o 2 celle, senza buchi e senza sovrapposizioni.
-function fillGrid() {
-  const grid = Array.from({ length: GRID_ROWS + 2 }, () => Array(GRID_COLS + 2).fill(null));
-  const cells = [];
-  for (let row = 1; row <= GRID_ROWS; row++) for (let col = 1; col <= GRID_COLS; col++) cells.push({ col, row });
-  const draft = [];
-  for (const { col, row } of shuffle(cells)) {
-    if (grid[row][col]) continue;
-    const key = `k${draft.length}`;
-    const options = [];
-    if (col + 1 <= GRID_COLS && !grid[row][col + 1]) options.push({ w: 2, h: 1 });
-    if (row + 1 <= GRID_ROWS && !grid[row + 1][col]) options.push({ w: 1, h: 2 });
-    const shape = options.length && Math.random() < DOUBLE_ROOM_CHANCE ? pick(options) : { w: 1, h: 1 };
-    for (let dr = 0; dr < shape.h; dr++) for (let dc = 0; dc < shape.w; dc++) grid[row + dr][col + dc] = key;
-    draft.push({ key, col, row, w: shape.w, h: shape.h });
-  }
-  return { grid, draft };
-}
-
-// Passo 2: due stanze che condividono un muro sono "vicine", ma non ancora collegate.
-function neighbours(grid, draft) {
-  const adjacency = new Map(draft.map((r) => [r.key, new Set()]));
-  for (let row = 1; row <= GRID_ROWS; row++) for (let col = 1; col <= GRID_COLS; col++) {
-    const here = grid[row][col];
-    for (const [dc, dr] of [[1, 0], [0, 1]]) {
-      const other = grid[row + dr]?.[col + dc];
-      if (!other || other === here) continue;
-      adjacency.get(here).add(other);
-      adjacency.get(other).add(here);
-    }
-  }
-  return adjacency;
-}
-
-// Passo 3: albero di copertura casuale (tutto raggiungibile) + qualche porta extra.
-// Tutti i muri non estratti restano chiusi: da qui nascono le stanze vicine ma separate.
-function carveDoors(draft, adjacency) {
-  const keys = draft.map((r) => r.key);
-  const doors = new Set();
-  const addDoor = (a, b) => doors.add([a, b].sort().join('|'));
-  const inTree = new Set([pick(keys)]);
-  while (inTree.size < keys.length) {
-    const options = [];
-    for (const a of inTree) for (const b of adjacency.get(a)) if (!inTree.has(b)) options.push([a, b]);
-    if (!options.length) break;
-    const [a, b] = pick(options);
-    addDoor(a, b);
-    inTree.add(b);
-  }
-  for (const [a, set] of adjacency) for (const b of set) {
-    if (a < b && Math.random() < EXTRA_DOOR_CHANCE) addDoor(a, b);
-  }
-  return doors;
-}
-
-// Passo 4: identità delle stanze (nomi dal pool tematico della missione) e ruoli tattici
-// (partenza, obiettivo, consegna, nodi). Obiettivo e consegna finiscono sempre agli antipodi
-// del percorso: bisogna attraversare il livello e poi tornare indietro.
-function buildMap(roomNames) {
-  const { grid, draft } = fillGrid();
-  const adjacency = neighbours(grid, draft);
-  const doors = carveDoors(draft, adjacency);
-
-  const ordered = [...draft].sort((a, b) => a.row - b.row || a.col - b.col);
-  const names = shuffle(roomNames);
-  const rooms = ordered.map((r, i) => ({
-    id: `${'ABCD'[r.col - 1]}${String(i + 1).padStart(2, '0')}`,
-    name: names[i % names.length],
-    col: r.col, row: r.row, w: r.w, h: r.h, links: [],
-  }));
-  const byKey = new Map(ordered.map((r, i) => [r.key, rooms[i]]));
-  for (const door of doors) {
-    const [a, b] = door.split('|');
-    const ra = byKey.get(a), rb = byKey.get(b);
-    if (!ra || !rb) continue;
-    ra.links.push(rb.id);
-    rb.links.push(ra.id);
-  }
-
-  // La squadra entra da un lato della struttura, mai dal centro.
-  const border = rooms.filter((r) => r.col === 1);
-  const start = (border.length ? border : rooms).sort((a, b) => b.row - a.row)[0];
-  start.start = true;
-  const fromStart = distanceMap(rooms, start.id);
-  const reachable = rooms.filter((r) => fromStart[r.id] !== undefined);
-
-  // L'obiettivo è la stanza più lontana dall'ingresso: bisogna attraversare il livello.
-  const vault = [...reachable].sort((a, b) => (fromStart[b.id] || 0) - (fromStart[a.id] || 0))[0];
-  vault.vault = true;
-  const fromVault = distanceMap(rooms, vault.id);
-  // Il punto di consegna è lontano dall'obiettivo: recuperare non basta, bisogna tornare indietro.
-  const drop = reachable.filter((r) => r !== vault && r !== start)
-    .sort((a, b) => (fromVault[b.id] || 0) - (fromVault[a.id] || 0))[0] || start;
-  drop.exit = true;
-
-  const rest = shuffle(reachable.filter((r) => !r.start && !r.vault && !r.exit));
-  for (const room of rest.slice(0, 3)) room.node = true;
-  const leftovers = rest.slice(3).sort((a, b) => b.links.length - a.links.length);
-  for (const room of leftovers.slice(0, 2)) room.exposed = true;
-  for (const room of leftovers.slice(2)) room.cover = true;
-
-  return { rooms, startRoom: start.id, vaultRoom: vault.id, dropRoom: drop.id, nodeRooms: rooms.filter((r) => r.node).map((r) => r.id) };
 }
 
 // Statistiche in enemies.mjs. Le missioni pescano da qui il proprio presidio: il presidio
@@ -263,15 +144,16 @@ function buildEnemies(layout, rooms, hpScale, dmgScale, squadSize) {
 // CATALOGO MISSIONI
 // Ogni missione riusa lo stesso motore (nodi, allarme, combattimento) e differisce solo per
 // l'obiettivo finale in teca/nucleo/cella, per la meccanica di "carico" che lo accompagna e per
-// il tema della propria plancia. `narrative` risolve i testi che dipendono dai nomi delle
+// la plancia fissa in `layout`. `narrative` risolve i testi che dipendono dai nomi delle
 // stanze usando l'helper `roomName` locale a `createGame`, perché lì la variabile globale
 // `game` non è ancora assegnata.
-// `roomNames` = pool di nomi di stanza tematico della missione (16 voci, una per ogni cella
-// possibile della griglia): `buildMap()` lo pesca per disegnare una plancia nuova a ogni
-// partita. La composizione del presidio resta invece quella di default in `buildEnemies`
-// (o quella dichiarata in `garrison`, se una missione la definisce), perché si aggancia ai
-// ruoli tattici (`vault`/`node:N`/`hub`) e non a stanze fisse.
-const mapNote = (vaultNoun) => `Plancia generata da zero a ogni partita su una griglia di celle: cambia sempre, anche rigiocando questa stessa missione. Le stanze sono collegate solo da alcune porte — due stanze vicine possono non comunicare affatto. Contiene sempre la zona di partenza (S), tre nodi di rete (N), ${vaultNoun} dell’obiettivo e il punto di consegna (▼), lontani fra loro. Lo schema qui sotto segna solo il tipo di questi elementi, non la loro posizione reale.`;
+// `layout` = plancia della missione, fissa e sempre uguale a ogni partita (`createGame` la
+// clona con `structuredClone` senza toccarla): `rooms` con id/name/col/row/w/h/links e i flag
+// di ruolo start/vault/exit/node/exposed/cover, più startRoom/vaultRoom/dropRoom/nodeRooms.
+// Generata una tantum con `npm run map:generate` (vedi `scripts/generate-map.mjs`): per
+// aggiungere una missione nuova, o rigenerare quella di una esistente, si passa lì il pool di
+// 16 nomi di stanza a tema e si incolla il `layout` stampato in output.
+const mapNote = (vaultNoun, roomCount) => `Plancia fissa di questa missione: ${roomCount} stanze su una griglia, collegate solo da alcune porte — due stanze vicine possono non comunicare affatto. La mappa contiene la zona di partenza (S), tre nodi di rete (N), ${vaultNoun} dell’obiettivo e il punto di consegna (▼), lontani fra loro, ed è sempre la stessa a ogni partita. Lo schema qui sotto segna solo dove stanno questi elementi.`;
 
 const MISSIONS = {
   valigetta: {
@@ -285,11 +167,25 @@ const MISSIONS = {
       'Trasportate la valigetta fino al punto di consegna senza farvi bloccare dai presidi.',
       'Portate ogni operativo ancora vivo nel punto di consegna per chiudere l’estrazione.',
     ],
-    mapNote: mapNote('la teca'),
-    roomNames: [
-      'CONDOTTI','SERVER FARM','SICUREZZA','ACCESSO','NEXUS','LAB NERO','GARAGE','ARCHIVIO',
-      'PONTE','MENSA','DEPOSITO','CELLE','ATRIO','TERMICA','OFFICINA','CRIOSALA',
-    ],
+    mapNote: mapNote('la teca', 12),
+    layout: {
+      rooms: [
+        {id:'A01',name:'GARAGE',col:1,row:1,w:1,h:1,links:['B02'],exit:true},
+        {id:'B02',name:'ACCESSO',col:2,row:1,w:1,h:1,links:['C03','A01','A05'],node:true},
+        {id:'C03',name:'TERMICA',col:3,row:1,w:1,h:1,links:['B02','C06','D04'],node:true},
+        {id:'D04',name:'NEXUS',col:4,row:1,w:1,h:1,links:['C03','D07'],exposed:true},
+        {id:'A05',name:'CONDOTTI',col:1,row:2,w:2,h:1,links:['C06','B02'],cover:true},
+        {id:'C06',name:'LAB NERO',col:3,row:2,w:1,h:2,links:['C03','A08','A05'],exposed:true},
+        {id:'D07',name:'CRIOSALA',col:4,row:2,w:1,h:1,links:['D04','D09'],cover:true},
+        {id:'A08',name:'SICUREZZA',col:1,row:3,w:2,h:1,links:['C06','A10'],cover:true},
+        {id:'D09',name:'PONTE',col:4,row:3,w:1,h:1,links:['D07','D12'],node:true},
+        {id:'A10',name:'ARCHIVIO',col:1,row:4,w:2,h:1,links:['A08'],start:true},
+        {id:'C11',name:'CELLE',col:3,row:4,w:1,h:1,links:['D12'],vault:true},
+        {id:'D12',name:'MENSA',col:4,row:4,w:1,h:1,links:['D09','C11'],cover:true},
+      ],
+      startRoom: 'A10', vaultRoom: 'C11', dropRoom: 'A01',
+      nodeRooms: ['B02', 'C03', 'D09'],
+    },
     narrative(layout, roomName) {
       return {
         objective: `Violate ${NODES_REQUIRED} nodi per sbloccare la teca di ${roomName(layout.vaultRoom)}, recuperate la valigetta MNEMOSYNE e consegnatela in ${roomName(layout.dropRoom)}.`,
@@ -309,12 +205,26 @@ const MISSIONS = {
       'Dopo la PURGA ogni sistema Helix converge su di voi: raggiungete il punto di consegna prima della saturazione.',
       'Portate ogni operativo ancora vivo nel punto di consegna per l’estrazione.',
     ],
-    mapNote: mapNote('il nucleo dati'),
-    roomNames: [
-      'SALA SERVER','NODO DATI','RACK PRINCIPALE','CAMERA BIANCA','CENTRALE DATI','SALA CAVI',
-      'RAFFREDDAMENTO','BACKUP','CONTROLLO REMOTO','FIBRA DORSALE','ARCHIVIO DIGITALE',
-      'SALA MACCHINE','MODULO QUANTICO','SPECCHIO DATI','ALIMENTAZIONE','DATACENTER',
-    ],
+    mapNote: mapNote('il nucleo dati', 13),
+    layout: {
+      rooms: [
+        {id:'A01',name:'SALA SERVER',col:1,row:1,w:2,h:1,links:['A03','C02'],cover:true},
+        {id:'C02',name:'CONTROLLO REMOTO',col:3,row:1,w:2,h:1,links:['A01','D06'],node:true},
+        {id:'A03',name:'DATACENTER',col:1,row:2,w:1,h:1,links:['B04','A01','A07'],cover:true},
+        {id:'B04',name:'BACKUP',col:2,row:2,w:1,h:1,links:['C05','A03','B08'],exposed:true},
+        {id:'C05',name:'MODULO QUANTICO',col:3,row:2,w:1,h:1,links:['B04','C09'],node:true},
+        {id:'D06',name:'CENTRALE DATI',col:4,row:2,w:1,h:1,links:['C02'],exit:true},
+        {id:'A07',name:'FIBRA DORSALE',col:1,row:3,w:1,h:2,links:['B08','A03'],start:true},
+        {id:'B08',name:'ARCHIVIO DIGITALE',col:2,row:3,w:1,h:1,links:['B04','A07','B11'],exposed:true},
+        {id:'C09',name:'SPECCHIO DATI',col:3,row:3,w:1,h:1,links:['C05','D10'],cover:true},
+        {id:'D10',name:'RAFFREDDAMENTO',col:4,row:3,w:1,h:1,links:['C09','D13'],cover:true},
+        {id:'B11',name:'NODO DATI',col:2,row:4,w:1,h:1,links:['B08','C12'],node:true},
+        {id:'C12',name:'SALA MACCHINE',col:3,row:4,w:1,h:1,links:['B11'],cover:true},
+        {id:'D13',name:'CAMERA BIANCA',col:4,row:4,w:1,h:1,links:['D10'],vault:true},
+      ],
+      startRoom: 'A07', vaultRoom: 'D13', dropRoom: 'D06',
+      nodeRooms: ['C02', 'C05', 'B11'],
+    },
     narrative(layout, roomName) {
       return {
         objective: `Violate ${NODES_REQUIRED} nodi per abbattere il firewall del nucleo dati in ${roomName(layout.vaultRoom)}, lanciate la PURGA e sparite da ${roomName(layout.dropRoom)} prima che la torre richiuda ogni via d’uscita.`,
@@ -335,12 +245,25 @@ const MISSIONS = {
       'Scortatelo fino al punto di consegna: se resta solo con ostili viene colpito ogni round.',
       'Portate l’informatore e ogni operativo ancora vivo nel punto di consegna.',
     ],
-    mapNote: mapNote('la cella'),
-    roomNames: [
-      'BLOCCO DETENZIONE','CORRIDOIO GUARDIE','SALA INTERROGATORI','ARMERIA','SPOGLIATOIO',
-      'CENTRALE SICUREZZA','ATRIO INGRESSO','SALA VISITE','MENSA GUARDIE','DEPOSITO PROVE',
-      'ARCHIVIO SCHEDE','SALA MONITOR','ISOLAMENTO','CORRIDOIO CELLE','POSTO DI BLOCCO','SALA CONTROLLO',
-    ],
+    mapNote: mapNote('la cella', 12),
+    layout: {
+      rooms: [
+        {id:'A01',name:'CORRIDOIO GUARDIE',col:1,row:1,w:1,h:1,links:['A05','B02'],node:true},
+        {id:'B02',name:'POSTO DI BLOCCO',col:2,row:1,w:1,h:1,links:['A01','C03'],node:true},
+        {id:'C03',name:'SALA INTERROGATORI',col:3,row:1,w:1,h:1,links:['B02'],vault:true},
+        {id:'D04',name:'ARCHIVIO SCHEDE',col:4,row:1,w:1,h:1,links:['D07'],exit:true},
+        {id:'A05',name:'MENSA GUARDIE',col:1,row:2,w:2,h:1,links:['A08','A01'],cover:true},
+        {id:'C06',name:'BLOCCO DETENZIONE',col:3,row:2,w:1,h:2,links:['B09','D07','C12'],exposed:true},
+        {id:'D07',name:'SALA CONTROLLO',col:4,row:2,w:1,h:2,links:['C06','D04','C12'],exposed:true},
+        {id:'A08',name:'SALA MONITOR',col:1,row:3,w:1,h:1,links:['B09','A05'],cover:true},
+        {id:'B09',name:'ISOLAMENTO',col:2,row:3,w:1,h:1,links:['B11','A08','C06'],cover:true},
+        {id:'A10',name:'DEPOSITO PROVE',col:1,row:4,w:1,h:1,links:['B11'],start:true},
+        {id:'B11',name:'ATRIO INGRESSO',col:2,row:4,w:1,h:1,links:['B09','A10','C12'],cover:true},
+        {id:'C12',name:'ARMERIA',col:3,row:4,w:2,h:1,links:['B11','D07','C06'],node:true},
+      ],
+      startRoom: 'A10', vaultRoom: 'C03', dropRoom: 'D04',
+      nodeRooms: ['A01', 'B02', 'C12'],
+    },
     narrative(layout, roomName) {
       return {
         objective: `Violate ${NODES_REQUIRED} nodi per sbloccare la cella in ${roomName(layout.vaultRoom)}, liberate l’informatore e scortatelo vivo fino a ${roomName(layout.dropRoom)}.`,
@@ -351,7 +274,7 @@ const MISSIONS = {
   },
 };
 const missionOf = (id) => MISSIONS[id] || MISSIONS.valigetta;
-const missionList = () => Object.values(MISSIONS).map(({ narrative: _narrative, roomNames: _roomNames, ...meta }) => meta);
+const missionList = () => Object.values(MISSIONS).map(({ narrative: _narrative, layout: _layout, ...meta }) => meta);
 
 let game = null;
 if (existsSync(DATA_FILE)) {
@@ -422,8 +345,8 @@ function publicGame() {
 
 function createGame(body) {
   const mission = missionOf(body.missionId);
-  // Plancia disegnata da zero per questa partita, col tema (nomi di stanza) della missione.
-  const layout = buildMap(mission.roomNames);
+  // Plancia fissa della missione, clonata così com'è: nessuna generazione casuale.
+  const layout = structuredClone(mission.layout);
   const picks = body.players.slice(0,6);
   const players = picks.map((pick,index)=>{
     const t = templates.find((item)=>item.id===pick.characterId) || templates[index];

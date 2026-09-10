@@ -11,6 +11,11 @@ export type SfxName = 'click'|'confirm'|'alert'|'back';
 const STORAGE_KEY='roverpunk-audio';
 type Levels = { music:number; sfx:number };
 const defaults:Levels={music:45,sfx:70};
+// La colonna sonora (file mp3, mastered) copre gli effetti sintetizzati quando si interagisce
+// (aprire pannelli, toccare comandi): a parità di slider la musica esce sempre il 25% più
+// piano di quanto indicato, per lasciare spazio agli effetti. Lo slider mostra e salva il
+// valore scelto; solo il volume effettivamente applicato viene scalato.
+const MUSIC_RELATIVE_GAIN=0.75;
 
 function readLevels():Levels{
   try{
@@ -132,7 +137,7 @@ export function AudioProvider({children,music:musicEnabled}:{children:React.Reac
   useEffect(()=>{
     if(!musicEnabled) return;
     const element=new Audio('/audio/soundtrack.mp3');
-    element.loop=true;element.preload='auto';element.volume=levels.music/100;
+    element.loop=true;element.preload='auto';element.volume=levels.music/100*MUSIC_RELATIVE_GAIN;
     audioRef.current=element;
     // I browser bloccano la riproduzione automatica: si riprova al primo gesto dell'utente.
     const start=()=>{ resume(); if(element.volume>0) element.play().catch(()=>{}); };
@@ -144,7 +149,7 @@ export function AudioProvider({children,music:musicEnabled}:{children:React.Reac
 
   useEffect(()=>{
     const element=audioRef.current; if(!element) return;
-    element.volume=levels.music/100;
+    element.volume=levels.music/100*MUSIC_RELATIVE_GAIN;
     if(levels.music===0) element.pause();
     else if(element.paused) element.play().catch(()=>{});
   },[levels.music]);

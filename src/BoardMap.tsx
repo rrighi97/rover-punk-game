@@ -1,7 +1,7 @@
 // PLANCIA DI GIOCO
 // La mappa arriva dal server dentro lo stato della partita: qui viene solo disegnata.
-// La plancia è generata da zero a ogni partita: la geometria si ricava dalle stanze stesse, ogni
-// stanza occupa una cella (quadrata) o due celle adiacenti (rettangolare, il doppio esatto).
+// È una plancia fissa per missione: la geometria si ricava dalle stanze stesse: ogni stanza
+// occupa una cella (quadrata) o due celle adiacenti (rettangolare, il doppio esatto).
 // I corridoi disegnati sono SOLO le porte reali: due stanze possono essere confinanti e
 // restare separate da un muro cieco, e in quel caso fra loro non compare nessuna linea.
 

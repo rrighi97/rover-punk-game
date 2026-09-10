@@ -374,11 +374,13 @@ function useSpawnAlerts(game:Game){
 }
 
 // Avviso a tutto schermo: dimensione fissa (non si adatta al testo, è il testo che ci sta
-// dentro), foto del nemico grande, chiusura manuale o dopo qualche secondo.
+// dentro), foto del nemico grande, chiusura manuale o dopo SPAWN_ALERT_SECONDS. Durata, sirena
+// e pulsazione (vedi .spawn-alert-pulse in styles.css) sono tutte allineate a questo stesso
+// valore, così l'avviso visivo e quello sonoro restano equivalenti.
+const SPAWN_ALERT_SECONDS=5;
 function SpawnAlert({enemy,roomName,onClose}:{enemy:Enemy;roomName:string;onClose:()=>void}){
-  useEffect(()=>{const t=setTimeout(onClose,6000);return()=>clearTimeout(t);},[enemy,onClose]);
-  // Sirena di 5 secondi a ogni avviso (segue il volume EFFETTI); non si ferma chiudendo l'avviso.
-  useEffect(()=>{playSiren(5);},[enemy.id]);
+  useEffect(()=>{const t=setTimeout(onClose,SPAWN_ALERT_SECONDS*1000);return()=>clearTimeout(t);},[enemy,onClose]);
+  useEffect(()=>{playSiren(SPAWN_ALERT_SECONDS);},[enemy.id]);
   useEffect(()=>{const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);},[onClose]);
   return <div className="spawn-alert">
     <button className="spawn-alert-scrim" aria-label="Chiudi avviso" onClick={onClose}/>

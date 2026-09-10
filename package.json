@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build",
     "start": "NODE_ENV=production node server.mjs",
     "lint": "oxlint",
-    "format": "oxfmt"
+    "format": "oxfmt",
+    "map:generate": "node scripts/generate-map.mjs"
   },
   "dependencies": {
     "lucide-react": "1.31.0",
