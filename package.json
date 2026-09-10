@@ -11,7 +11,8 @@
     "start": "NODE_ENV=production node server.mjs",
     "lint": "oxlint",
     "format": "oxfmt",
-    "map:generate": "node scripts/generate-map.mjs"
+    "map:generate": "node scripts/generate-map.mjs",
+    "sim": "node scripts/simulate.mjs"
   },
   "dependencies": {
     "lucide-react": "1.31.0",

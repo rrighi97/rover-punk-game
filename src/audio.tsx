@@ -12,10 +12,13 @@ const STORAGE_KEY='roverpunk-audio';
 type Levels = { music:number; sfx:number };
 const defaults:Levels={music:45,sfx:70};
 // La colonna sonora (file mp3, mastered) copre gli effetti sintetizzati quando si interagisce
-// (aprire pannelli, toccare comandi): a parità di slider la musica esce sempre il 25% più
-// piano di quanto indicato, per lasciare spazio agli effetti. Lo slider mostra e salva il
-// valore scelto; solo il volume effettivamente applicato viene scalato.
-const MUSIC_RELATIVE_GAIN=0.75;
+// (aprire pannelli, toccare comandi): a parità di slider la musica esce sempre il 30% più
+// piano di quanto indicato e gli effetti il 20% più forte (con tetto a 100%), per lasciare
+// spazio agli effetti. Lo slider mostra e salva il valore scelto; solo il volume
+// effettivamente applicato viene scalato.
+const MUSIC_RELATIVE_GAIN=0.70;
+const SFX_RELATIVE_GAIN=1.20;
+function sfxGain(level:number){ return Math.min(1,level/100*SFX_RELATIVE_GAIN); }
 
 function readLevels():Levels{
   try{
@@ -30,7 +33,7 @@ function clamp(value:number){ return Math.max(0,Math.min(100,Math.round(value)))
 // ---- sintetizzatore effetti ----------------------------------------------------------
 let context:AudioContext|null=null;
 let master:GainNode|null=null;
-let sfxVolume=defaults.sfx/100;
+let sfxVolume=sfxGain(defaults.sfx);
 
 function engine(){
   if(context) return {context,master:master!};
@@ -129,7 +132,7 @@ export function AudioProvider({children,music:musicEnabled}:{children:React.Reac
   const [levels,setLevels]=useState<Levels>(readLevels);
   const audioRef=useRef<HTMLAudioElement|null>(null);
 
-  useEffect(()=>{ sfxVolume=levels.sfx/100; if(master) master.gain.value=sfxVolume;
+  useEffect(()=>{ sfxVolume=sfxGain(levels.sfx); if(master) master.gain.value=sfxVolume;
     try{ localStorage.setItem(STORAGE_KEY,JSON.stringify(levels)); }catch{/* storage non disponibile */}
   },[levels]);
 

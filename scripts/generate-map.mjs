@@ -13,6 +13,7 @@ const GRID_COLS = 4;
 const GRID_ROWS = 4;
 const DOUBLE_ROOM_CHANCE = 0.6;
 const EXTRA_DOOR_CHANCE = 0.28;
+const VOID = '∅'; // cella lasciata deliberatamente vuota: il "buco" nella plancia
 
 function distanceMap(rooms, origin) {
   const byId = new Map(rooms.map((r) => [r.id, r]));
@@ -50,11 +51,17 @@ function assignDoorStates(doorIdPairs) {
   return out;
 }
 
-// Passo 1: riempie la griglia con stanze da 1 o 2 celle, senza buchi e senza sovrapposizioni.
+// Passo 1: riempie la griglia con stanze da 1 o 2 celle, senza sovrapposizioni. Prima però marca
+// 1–2 celle come VOID: restano vuote per sempre (nessuna stanza le occupa), così il perimetro
+// della plancia non è mai un rettangolo pieno — c'è sempre almeno un buco. Mai sui quattro angoli:
+// una stanza d'angolo isolata dal buco si porterebbe dietro troppe griglie da scartare.
 function fillGrid() {
   const grid = Array.from({ length: GRID_ROWS + 2 }, () => Array(GRID_COLS + 2).fill(null));
   const cells = [];
   for (let row = 1; row <= GRID_ROWS; row++) for (let col = 1; col <= GRID_COLS; col++) cells.push({ col, row });
+  const isCorner = ({ col, row }) => (col === 1 || col === GRID_COLS) && (row === 1 || row === GRID_ROWS);
+  const holeCount = Math.random() < 0.35 ? 2 : 1;
+  for (const cell of shuffle(cells).filter((c) => !isCorner(c)).slice(0, holeCount)) grid[cell.row][cell.col] = VOID;
   const draft = [];
   for (const { col, row } of shuffle(cells)) {
     if (grid[row][col]) continue;
@@ -73,9 +80,10 @@ function neighbours(grid, draft) {
   const adjacency = new Map(draft.map((r) => [r.key, new Set()]));
   for (let row = 1; row <= GRID_ROWS; row++) for (let col = 1; col <= GRID_COLS; col++) {
     const here = grid[row][col];
+    if (!here || here === VOID) continue;
     for (const [dc, dr] of [[1, 0], [0, 1]]) {
       const other = grid[row + dr]?.[col + dc];
-      if (!other || other === here) continue;
+      if (!other || other === VOID || other === here) continue;
       adjacency.get(here).add(other);
       adjacency.get(other).add(here);
     }
@@ -156,7 +164,18 @@ function validate(layout) {
   const distVault = dist[layout.vaultRoom] || 0;
   const distDrop = dist[layout.dropRoom] || 0;
   const distVaultDrop = distanceMap(layout.rooms, layout.vaultRoom)[layout.dropRoom] || 0;
-  return { count: layout.rooms.length, allReachable, distVault, distDrop, distVaultDrop };
+  // Buco: almeno una cella vuota DENTRO il rettangolo che racchiude le stanze (non un semplice
+  // bordo mancante che sparirebbe restringendo la griglia).
+  const occupied = new Set();
+  let minC = 99, maxC = 0, minR = 99, maxR = 0;
+  for (const r of layout.rooms) {
+    for (let dr = 0; dr < (r.h || 1); dr++) for (let dc = 0; dc < (r.w || 1); dc++) occupied.add(`${r.row + dr},${r.col + dc}`);
+    minC = Math.min(minC, r.col); maxC = Math.max(maxC, r.col + (r.w || 1) - 1);
+    minR = Math.min(minR, r.row); maxR = Math.max(maxR, r.row + (r.h || 1) - 1);
+  }
+  let hasHole = false;
+  for (let row = minR; row <= maxR; row++) for (let col = minC; col <= maxC; col++) if (!occupied.has(`${row},${col}`)) hasHole = true;
+  return { count: layout.rooms.length, allReachable, distVault, distDrop, distVaultDrop, hasHole };
 }
 
 // Prova diverse griglie e tiene quella con le distanze più equilibrate: evita mappe minuscole,
@@ -167,12 +186,16 @@ function bestOf(roomNames, tries) {
     const layout = buildMap(roomNames);
     const v = validate(layout);
     if (!v.allReachable) continue;
-    if (v.count < 10 || v.count > 14) continue;
+    if (!v.hasHole) continue;
+    if (v.count < 9 || v.count > 14) continue;
     if (v.distDrop < 3) continue;
     const score = v.distVault + v.distDrop + v.distVaultDrop;
     if (score > bestScore) { bestScore = score; best = layout; }
   }
-  return best || buildMap(roomNames);
+  if (best) return best;
+  let fallback = buildMap(roomNames);
+  for (let i = 0; i < 50 && !validate(fallback).hasHole; i++) fallback = buildMap(roomNames);
+  return fallback;
 }
 
 function roomToJs(r) {

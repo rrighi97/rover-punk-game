@@ -30,7 +30,7 @@ export const chapterList=(templates:Template[])=>[
       <p>Non c’è un master umano: il computer è il <b>GM autonomo</b>. Gestisce turni, nemici, allarme, danni e risoluzione delle azioni. Voi dovete solo decidere cosa fare, round dopo round.</p>
       <h3>Obiettivo</h3>
       <p>ROVERPUNK non è un gioco di sterminio: è un <b>colpo</b>. Ogni missione ha un oggetto da prendere e un posto dove portarlo. Gli Helix sono l’ostacolo che sta in mezzo, non la lista della spesa.</p>
-      <div className="manual-callout"><Briefcase size={16}/><p>Nella <b>MISSIONE 01 // LA VALIGETTA</b> dovete violare i nodi per aprire la teca, prendere la valigetta <b>MNEMOSYNE</b> e consegnarla al punto di raccolta. Vedi il capitolo <b>LA MISSIONE</b>.</p></div>
+      <div className="manual-callout"><Briefcase size={16}/><p>Tre missioni, stesso schema: violare i nodi, agire sull’obiettivo e uscire dal punto di consegna. <b>01 // LA VALIGETTA</b> — rubate MNEMOSYNE. <b>02 // GHOST PROTOCOL</b> — cancellate il nucleo con la PURGA. <b>03 // OSTAGGIO</b> — liberate l’informatore e portatelo fuori vivo. Vedi il capitolo <b>LE MISSIONI</b>.</p></div>
       <h3>Il flusso di una partita</h3>
       <ol className="manual-steps">
         <li><b>Configurazione</b> — sulla plancia scegli quanti siete e assegni un personaggio a ciascun giocatore.</li>
@@ -39,7 +39,7 @@ export const chapterList=(templates:Template[])=>[
         <li><b>Esito</b> — vittoria o sconfitta vengono dichiarate automaticamente dalla plancia.</li>
       </ol>
       <div className="manual-callout"><AlertTriangle size={16}/><p>Una partita dura tipicamente <b>25–40 minuti</b>. Non serve carta, dadi o schede: tutto è sullo schermo. <b>Ogni missione ha la sua plancia</b>: cambiando missione cambia la mappa.</p></div>
-      <div className="manual-callout"><Timer size={16}/><p>Esiste <b>un solo livello di minaccia</b>, e non si sceglie. ROVERPUNK è tarato per essere duro: presidi che, una volta svegliati, non vi mollano più, rinforzi che vi tagliano la strada e un allarme che comunque sale di 3 a ogni round. Nessun tempo limite per round: si ragiona con calma.</p></div>
+      <div className="manual-callout"><Timer size={16}/><p>Esiste <b>un solo livello di minaccia</b>, e non si sceglie. ROVERPUNK è tarato per essere duro: presidi che, una volta svegliati, non vi mollano più, rinforzi che vi tagliano la strada e un allarme che comunque sale di 4 a ogni round. Nessun tempo limite per round: si ragiona con calma.</p></div>
     </>,
   },
   {
@@ -66,12 +66,12 @@ export const chapterList=(templates:Template[])=>[
         <li><b>Ruota il telefono in orizzontale</b>: la console richiede lo schermo largo.</li>
       </ol>
       <h3>4. Via</h3>
-      <p>Il pulsante <b>AVVIA OPERAZIONE</b> resta bloccato finché non è collegato almeno un telefono. Quando la squadra è pronta, premilo dalla plancia.</p>
+      <p>Quando la squadra è pronta premi <b>AVVIA OPERAZIONE</b> dalla plancia. Se non tutti i telefoni sono collegati la plancia chiede conferma: puoi avviare lo stesso, ma il giro resta fermo sul turno di chi non è collegato finché non si collega o non lo salti con <b>SALTA TURNO</b>.</p>
       <div className="manual-callout"><Radio size={16}/><p>La partita viene salvata in locale: se il server si riavvia, i telefoni si ricollegano da soli senza perdere il progresso — plancia compresa.</p></div>
     </>,
   },
   {
-    id:'missione', label:'LA MISSIONE', icon:<Briefcase size={15}/>,
+    id:'missione', label:'LE MISSIONI', icon:<Briefcase size={15}/>,
     content:<>
       <h2>Missione 01 // La valigetta</h2>
       <p>Dentro la Helix Tower c’è un prototipo chiamato <b>MNEMOSYNE</b>, chiuso in una teca cifrata. Il colpo è semplice da spiegare e difficile da eseguire: <b>aprire, prendere, portare fuori</b>.</p>
@@ -91,6 +91,19 @@ export const chapterList=(templates:Template[])=>[
       </ul>
       <div className="manual-callout"><Briefcase size={16}/><p>Il punto di consegna è <b>lontano dalla teca</b>: recuperare la valigetta è metà lavoro. La parte difficile è il viaggio di ritorno, con una scia di presidi ingaggiati alle spalle e i rinforzi che vi vengono incontro.</p></div>
       <div className="manual-callout"><Skull size={16}/><p><b>Non dovete uccidere nessuno per vincere.</b> I combattimenti sono una conseguenza: i presidi stanno dove ci sono i nodi e la teca, cioè esattamente dove dovete andare. Potete anche prendere la valigetta e correre, lasciandoveli dietro — ma vi seguiranno.</p></div>
+      <h2>Missione 02 // Ghost Protocol</h2>
+      <p>Niente da portare via: MNEMOSYNE va <b>cancellato alla fonte</b>. Violate 2 nodi per abbattere il firewall, raggiungete il <b>nucleo dati</b> e usate l’azione <b>PURGA</b>.</p>
+      <ul>
+        <li>Nell’istante in cui parte la PURGA <b>ogni unità Helix del settore viene ingaggiata</b>, anche quelle che non vi hanno mai visti, e parte a caccia della squadra.</li>
+        <li>Da lì in poi è solo fuga: portate <b>ogni operativo ancora vivo</b> nel punto di consegna.</li>
+      </ul>
+      <h2>Missione 03 // Ostaggio</h2>
+      <p>Nella cella è rinchiuso un informatore. Violate 2 nodi per sbloccarla e usate l’azione <b>LIBERA</b> nella sua stanza: da quel momento lo <b>scortate voi</b> e si sposta con chi l’ha liberato.</p>
+      <ul>
+        <li>L’informatore ha <b>70 di integrità</b> e non combatte. Gli ostili colpiscono per primo chi lo scorta.</li>
+        <li>Se chi lo scorta cade, l’informatore <b>resta in quella stanza</b>: se lì ci sono ostili e nessun compagno in piedi, ogni ostile gli toglie <b>18</b> a ogni round. Riprendetelo con un altro <b>LIBERA</b>.</li>
+        <li>Se l’informatore muore la missione è <b>persa</b>. Per vincere va portato vivo al punto di consegna, insieme a ogni operativo ancora in piedi.</li>
+      </ul>
     </>,
   },
   {
@@ -156,15 +169,15 @@ export const chapterList=(templates:Template[])=>[
       <ul>
         <li><b>SALTA TURNO</b> — salta l’operativo di mano e passa al successivo.</li>
         <li><b>CHIUDI ROUND</b> — chiude subito il giro: gli operativi che non hanno giocato saltano, rispondono gli Helix.</li>
-        <li><b>TERMINA</b> — chiude la partita e torna alla configurazione (la prossima partita avrà una plancia nuova).</li>
+        <li><b>TERMINA</b> — chiude la partita e torna alla configurazione. La plancia di ogni missione resta sempre la stessa.</li>
       </ul>
       <h3>Fuori combattimento</h3>
-      <p>Un operativo a <b>0 integrità</b> non gioca più i round, ma <b>non è morto</b>. Torna in piedi con:</p>
+      <p>Un operativo a <b>0 integrità</b> non gioca più i round, ma <b>non è morto</b>: il suo turno viene saltato (se cade durante il proprio turno, sganciandosi, la mano passa subito al successivo). Torna in piedi con:</p>
       <ul>
         <li><b>RIPRISTINO</b> di un compagno → rientra al <b>25%</b> della sua integrità massima.</li>
         <li><b>Protocollo Lazarus</b> del RIPPER → rientra al <b>40%</b>.</li>
       </ul>
-      <div className="manual-callout"><Users size={16}/><p>La difficoltà scala col numero di giocatori: i nemici hanno <b>+30% integrità</b> e <b>+12% danno</b> per ogni giocatore oltre il terzo, e dai <b>4 giocatori in su</b> compare un presidio in più sullo snodo principale. Giocare in 6 non è una scorciatoia.</p></div>
+      <div className="manual-callout"><Users size={16}/><p>La difficoltà scala col numero di giocatori: i nemici sono <b>sempre gli stessi</b>, ma integrità e danno crescono con la squadra (in 2 poco sopra i valori base, in 6 quasi il <b>triplo dell’integrità</b> e più del <b>doppio del danno</b>). Giocare in 6 non è una scorciatoia.</p></div>
     </>,
   },
   {
@@ -173,7 +186,7 @@ export const chapterList=(templates:Template[])=>[
       <h2>La plancia della missione</h2>
       <p>Ogni missione ha la <b>sua plancia fissa</b>: stessa mappa a ogni partita. Nomi delle stanze, porte, posizione di teca, nodi e punto di consegna sono quelli mostrati nel briefing. Cambiare missione cambia la mappa.</p>
       <h3>Stanze quadrate e rettangolari</h3>
-      <p>Il livello è una griglia di celle. Una stanza occupa <b>una cella</b> (quadrata) oppure <b>due celle adiacenti</b> (rettangolare, quindi <b>esattamente il doppio</b> di una quadrata), in orizzontale o in verticale. Una plancia ha <b>12–13 stanze</b>, di cui alcune rettangolari.</p>
+      <p>Il livello è una griglia di celle. Una stanza occupa <b>una cella</b> (quadrata) oppure <b>due celle adiacenti</b> (rettangolare, quindi <b>esattamente il doppio</b> di una quadrata), in orizzontale o in verticale. Una plancia ha <b>12–13 stanze</b>, di cui alcune rettangolari, e qualche cella resta <b>vuota</b>.</p>
       <p>La dimensione è puramente architettonica: una stanza grande <b>non</b> ospita più gente né dà bonus. Serve a rendere la pianta credibile e a spostare le distanze.</p>
       <h3>Vicine non vuol dire collegate</h3>
       <p>Questa è la regola che rende la plancia un labirinto: <b>due stanze possono condividere un muro e non avere nessuna porta</b>. Sulla plancia si vede a colpo d’occhio, perché fra loro non c’è nessun corridoio disegnato.</p>
@@ -183,19 +196,26 @@ export const chapterList=(templates:Template[])=>[
         <li>Si può passare <b>solo dalle porte</b>: la console del telefono elenca le stanze davvero raggiungibili e blocca le altre.</li>
       </ul>
       <div className="manual-callout"><Shuffle size={16}/><p>Conseguenza pratica: la stanza che vedete <b>di fianco</b> a voi può richiedere <b>tre porte</b> per essere raggiunta. Guardate i corridoi disegnati, non la distanza sullo schermo.</p></div>
+      <h3>Porte aperte e bloccate</h3>
+      <ul>
+        <li>Ogni porta è disegnata sul muro fra le due stanze: <b>verde</b> se aperta, <b>rossa</b> se bloccata. Almeno metà delle porte parte bloccata.</li>
+        <li>Una porta bloccata non si attraversa: prima va aperta con l’azione <b>SBLOCCA PORTA</b>, da una delle due stanze che collega. Consuma una delle due azioni del turno e resta aperta per il resto della partita.</li>
+        <li>Le porte fermano solo voi: <b>gli Helix passano anche da quelle bloccate</b>.</li>
+      </ul>
       <h3>I segnalini della plancia</h3>
       <p>Nelle stanze compaiono pedine quadrate. Oltre a squadra e ostili ci sono i <b>segnalini di scenario e di missione</b>: passandoci sopra il mouse, ognuno dice cosa è.</p>
       <table className="manual-table">
         <thead><tr><th>Segnalino</th><th>Cosa indica</th></tr></thead>
         <tbody>
-          <tr><td><b>Lettera colorata</b></td><td>Un operativo. Il colore è quello del personaggio; grigio e opaco significa fuori combattimento.</td></tr>
-          <tr><td><b>Pedina dorata</b></td><td>L’operativo che sta <b>portando la valigetta</b>.</td></tr>
-          <tr><td><b>SEC / DR / EL</b></td><td>Un ostile: fanteria, drone, élite. Se pulsa è <b>ingaggiato</b> e vi sta seguendo.</td></tr>
+          <tr><td><b>Ritratto col bordo colorato</b></td><td>Un operativo. Il colore è quello del personaggio; grigio e opaco significa fuori combattimento.</td></tr>
+          <tr><td><b>Bordo dorato</b></td><td>L’operativo che sta <b>portando la valigetta</b> o <b>scortando l’informatore</b>.</td></tr>
+          <tr><td><b>Ritratto col bordo rosso</b></td><td>Un ostile. Se pulsa è <b>ingaggiato</b> e vi sta seguendo.</td></tr>
           <tr><td><b>S</b> (azzurro)</td><td><b>Zona di partenza</b>: la stanza da cui la squadra è entrata.</td></tr>
           <tr><td><b>N</b> (verde acido)</td><td><b>Nodo di rete</b> da violare. Pieno = già violato.</td></tr>
-          <tr><td><b>T</b> (rosso)</td><td><b>Teca</b>. Tratteggiata = sigillata, piena = aperta.</td></tr>
-          <tr><td><b>▮</b> (dorato)</td><td><b>Valigetta MNEMOSYNE</b> a terra in quella stanza, pronta da raccogliere.</td></tr>
-          <tr><td><b>▼</b> (verde)</td><td><b>Punto di consegna</b>: dove va portata la valigetta e dove ci si estrae.</td></tr>
+          <tr><td><b>T</b> (rosso)</td><td><b>Obiettivo</b>: teca, nucleo o cella. Tratteggiato = sigillato, pieno = aperto.</td></tr>
+          <tr><td><b>▮</b> (dorato)</td><td><b>Valigetta MNEMOSYNE</b> a terra, oppure l’<b>informatore</b> (in cella o lasciato solo) in quella stanza.</td></tr>
+          <tr><td><b>▼</b> (verde)</td><td><b>Punto di consegna</b>: dove va portato l’obiettivo e dove ci si estrae.</td></tr>
+          <tr><td><b>Battente verde / rosso</b></td><td>Una <b>porta</b> aperta o bloccata fra due stanze.</td></tr>
         </tbody>
       </table>
       <h3>Etichette d’ambiente</h3>
@@ -206,9 +226,9 @@ export const chapterList=(templates:Template[])=>[
       <h3>Muoversi</h3>
       <ul>
         <li>La <b>MANOVRA</b> è gratuita: non consuma le azioni del round. Ti sposti <b>e</b> agisci, dalla stanza in cui arrivi.</li>
-        <li>Puoi entrare solo in una stanza <b>collegata da una porta</b>: una porta per round, niente scorciatoie.</li>
-        <li><b>Sganciarsi costa.</b> Se lasci una stanza con ostili dentro, subisci il <b>60% del loro danno</b> mentre volti le spalle.</li>
-        <li>Le manovre si risolvono <b>prima</b> di tutto il resto: chi entra in una stanza può essere colpito lì nello stesso round.</li>
+        <li>Puoi entrare solo in una stanza <b>collegata da una porta aperta</b>: una porta per turno, niente scorciatoie.</li>
+        <li><b>Sganciarsi costa.</b> Se lasci una stanza con ostili dentro, subisci il <b>60% del danno</b> del primo ostile mentre volti le spalle.</li>
+        <li>La manovra si risolve <b>subito</b>. Se a fine giro sei in una stanza con ostili, nella risposta Helix ti colpiscono lì.</li>
       </ul>
       <div className="manual-callout"><Footprints size={16}/><p>Prima mossa di ogni partita: <b>leggete la pianta insieme</b>. Contate le porte fra partenza, nodi, teca e consegna. Su queste mappe il percorso migliore non è mai quello che sembra.</p></div>
     </>,
@@ -223,8 +243,9 @@ export const chapterList=(templates:Template[])=>[
         <article><span><Swords size={19}/></span><div><b>01 · FUOCO</b><small>Costo: gratis · serve un ostile nella tua stanza</small><p>Attacchi un bersaglio <b>presente dove sei tu</b>. Danno = <b>il valore della tua arma</b> (es. <Chip>+7</Chip>), fisso e sempre a segno.</p></div></article>
         <article><span><Cpu size={19}/></span><div><b>02 · INTRUSIONE</b><small>Costo: gratis · serve un nodo nella tua stanza</small><p>Violi il nodo di <b>questa</b> stanza: <b>+1 nodo</b>. Colpisce anche un drone presente per <Chip>10</Chip>. Servono <b>2 nodi su 3</b> per aprire la teca.</p></div></article>
         <article><span><HeartPulse size={19}/></span><div><b>03 · RIPRISTINO</b><small>Costo: 2 FOCUS · agisce solo nella tua stanza</small><p>Se c’è un compagno a terra <b>nella tua stanza</b>, lo <b>rianima</b> al 25%. Altrimenti cura il compagno più ferito <b>presente lì con te</b> di <Chip>12</Chip>. Non si cura a distanza.</p></div></article>
-        <article><span><Briefcase size={19}/></span><div><b>04 · RECUPERO</b><small>Costo: gratis · la valigetta dev’essere nella tua stanza</small><p>Raccogli la <b>valigetta MNEMOSYNE</b>. Funziona nella teca <b>solo dopo</b> aver violato 2 nodi, e in qualunque stanza dove la valigetta sia caduta.</p></div></article>
-        <article><span><Zap size={19}/></span><div><b>05 · ABILITÀ</b><small>Costo: 3 FOCUS</small><p>La mossa esclusiva del tuo personaggio, con la sua portata. Vedi il capitolo <b>ABILITÀ</b>.</p></div></article>
+        <article><span><Briefcase size={19}/></span><div><b>04 · RECUPERO / PURGA / LIBERA</b><small>Costo: gratis · cambia con la missione</small><p><b>RECUPERO</b> (missione 01) raccoglie la valigetta: nella teca <b>solo dopo</b> 2 nodi, altrove ovunque sia caduta. <b>PURGA</b> (missione 02) cancella il nucleo, dal nucleo e a firewall abbattuto. <b>LIBERA</b> (missione 03) fa uscire l’informatore dalla cella aperta, o riprende la scorta se è rimasto solo.</p></div></article>
+        <article><span><DoorOpen size={19}/></span><div><b>05 · SBLOCCA PORTA</b><small>Costo: gratis · serve una porta bloccata nella tua stanza</small><p>Apre una porta bloccata verso una stanza collegata. Se ce n’è più di una, scegli quale dal menu sotto i pulsanti. La porta resta aperta per tutti.</p></div></article>
+        <article><span><Zap size={19}/></span><div><b>ABILITÀ</b><small>Costo: 3 FOCUS</small><p>La mossa esclusiva del tuo personaggio, con la sua portata. Vedi il capitolo <b>ABILITÀ</b>.</p></div></article>
       </div>
       <h3>Scegliere il bersaglio</h3>
       <p>Il menu <b>BERSAGLIO</b> elenca solo gli ostili <b>presenti nella tua stanza</b>. Se sei in una stanza vuota il menu è spento e FUOCO è bloccato: prima devi raggiungerli.</p>
@@ -242,7 +263,7 @@ export const chapterList=(templates:Template[])=>[
         <tbody>
           <tr><td>GHOST</td><td>Passo fantasma</td><td>Danno <Chip>26</Chip> a un ostile <b>nella tua stanza</b>.</td></tr>
           <tr><td>CHROME</td><td>Sovraccarico cromo</td><td>Danno <Chip>40</Chip> a un ostile <b>nella tua stanza</b>, il più alto del gioco.</td></tr>
-          <tr><td>CIPHER</td><td>Zero-day</td><td><b>+1 nodo</b> su un nodo nella tua stanza <b>o in una collegata da una porta</b>, e <Chip>25</Chip> danni ai droni nel raggio. L’unica azione a distanza del gioco.</td></tr>
+          <tr><td>CIPHER</td><td>Zero-day</td><td><b>+1 nodo</b> su un nodo nella tua stanza <b>o in una collegata</b> (anche da una porta bloccata), e <Chip>25</Chip> danni ai droni nel raggio. L’unica azione a distanza del gioco.</td></tr>
           <tr><td>RIPPER</td><td>Protocollo Lazarus</td><td><b>+18 integrità</b> e rianimazione al 40% per tutti i compagni <b>presenti nella sua stanza</b>.</td></tr>
           <tr><td>FACE</td><td>Identità sintetica</td><td><b>Allarme −5</b> su tutto il livello e gli ostili <b>della sua stanza</b> saltano il turno.</td></tr>
           <tr><td>DRIVER</td><td>Sciame MANTA</td><td>Danno <Chip>18</Chip> a <b>due ostili</b> nella sua stanza o in una collegata.</td></tr>
@@ -261,23 +282,24 @@ export const chapterList=(templates:Template[])=>[
       <p>Gli Helix <b>non girano per la mappa da soli</b>. Ogni unità è assegnata a una stanza — quella dove c’è qualcosa da difendere — e ci resta ferma per tutta la partita, finché non succede una cosa sola:</p>
       <ul>
         <li><b>Ingaggio.</b> Appena un operativo mette piede nella sua stanza, l’unità è ingaggiata. Da quel momento <b>non torna più in postazione</b>.</li>
-        <li><b>Inseguimento.</b> Un’unità ingaggiata vi segue di <b>una stanza per round</b>, passando dalle porte come voi. Se scappate, vi viene dietro; se vi dividete, segue chi ha agganciato.</li>
+        <li><b>Inseguimento.</b> Un’unità ingaggiata vi segue di <b>una stanza per round</b> lungo i collegamenti, e <b>le porte bloccate non la fermano</b>. Se scappate, vi viene dietro; se vi dividete, segue chi ha agganciato.</li>
         <li><b>Se il suo bersaglio cade</b>, aggancia l’operativo raggiungibile più vicino e riprende l’inseguimento.</li>
-        <li><b>Priorità al bottino:</b> se nella stanza c’è chi porta la valigetta, colpisce lui, sempre.</li>
+        <li><b>Priorità al bottino:</b> se nella stanza c’è chi porta la valigetta o scorta l’informatore, colpisce lui, sempre.</li>
       </ul>
+      <p>Due eventi svegliano <b>tutti</b> i presidi insieme, anche quelli mai visti: la <b>PURGA</b> della missione 02 e il <b>LOCKDOWN</b> all’80% d’allarme.</p>
       <p>Sulla plancia il pannello MINACCE dice per ognuno se è <b>DI PRESIDIO</b> (fermo, non vi ha ancora visti), <b>VI INSEGUE</b> o <b>IN CONTATTO CON LA SQUADRA</b>.</p>
       <div className="manual-callout"><Map size={16}/><p>Questo cambia tutto il gioco: <b>evitare una stanza significa evitare per sempre il suo presidio</b>. Ma ogni stanza che vi serve — nodi e teca — ha una guardia dentro. L’ingaggio non è un incidente: è il prezzo dell’obiettivo, e sta a voi decidere quante volte pagarlo.</p></div>
       <h3>Le unità</h3>
       <table className="manual-table">
         <thead><tr><th>Unità</th><th>Tipo</th><th>Integrità</th><th>Danno</th><th>Presidia</th></tr></thead>
         <tbody>
-          <tr><td>CUSTODE K-9</td><td>ÉLITE</td><td>120</td><td>+22</td><td>La teca</td></tr>
-          <tr><td>HELIX SEC-4</td><td>FANTERIA</td><td>40</td><td>+16</td><td>Nodi (e lo snodo principale se siete in 4+)</td></tr>
+          <tr><td>CUSTODE K-9</td><td>ÉLITE</td><td>120</td><td>+22</td><td>Teca / nucleo / cella</td></tr>
+          <tr><td>HELIX SEC-4</td><td>FANTERIA</td><td>40</td><td>+16</td><td>Nodi</td></tr>
           <tr><td>WASP D-2</td><td>DRONE</td><td>24</td><td>+13</td><td>Un nodo</td></tr>
           <tr><td>HELIX SEGUGIO</td><td>CACCIATORE</td><td>32</td><td>+15</td><td>Entra già in caccia dai picchi d’allarme</td></tr>
         </tbody>
       </table>
-      <p className="manual-muted">Valori base in 3 giocatori. Con più giocatori integrità e danno dei nemici salgono proporzionalmente. Il danno è quello scritto e va sempre a segno.</p>
+      <p className="manual-muted">Valori base del database. In partita integrità e danno vengono moltiplicati in base al numero di giocatori. Il danno è quello scritto e va sempre a segno.</p>
       <h3>Traccia Helix</h3>
       <ul>
         <li>A ogni <b>soglia d’allarme</b> (25 / 35 / 45 / 55 / 65 / 75%) entra <b>un HELIX SEGUGIO</b> da una stanza a caso, <b>già in caccia</b>. Ogni soglia scatta una volta sola.</li>
@@ -300,7 +322,8 @@ export const chapterList=(templates:Template[])=>[
           <tr><td>Il respiro della torre: <b>+4</b> a ogni round, sempre. Nient’altro.</td><td>Identità sintetica del FACE: <b>−5</b> su tutto il livello.</td></tr>
         </tbody>
       </table>
-      <div className="manual-callout"><AlertTriangle size={16}/><p>L’allarme adesso è una clessidra semplice: <b>+4 a round</b> e basta. Da 15% avete un margine largo — la pressione vera sono i <b>presidi</b> che vi trascinate dietro e i <b>rinforzi</b> ai round 5 e 9, non l’ago sulla plancia.</p></div>
+      <div className="manual-callout"><AlertTriangle size={16}/><p>L’allarme adesso è una clessidra semplice: <b>+4 a round</b> e basta. Da 15% avete un margine largo — la pressione vera sono i <b>presidi</b> che vi trascinate dietro e i <b>SEGUGI</b> che entrano a ogni soglia (il primo alla fine del 3° round), non l’ago sulla plancia.</p></div>
+      <div className="manual-callout"><ShieldAlert size={16}/><p><b>LOCKDOWN all’80%</b> (verso il 17° round): la torre allerta ogni presidio, anche quelli mai ingaggiati, e tutti convergono sulla squadra.</p></div>
       <div className="manual-callout"><Timer size={16}/><p>Conto della serva: da 15%, a <b>+4 per round</b>, la saturazione arriva verso il <b>ventiduesimo round</b>. Nessuna partita dovrebbe durare tanto: se ci arrivate, il problema non è l’allarme, è che siete rimasti impigliati nei combattimenti.</p></div>
     </>,
   },
@@ -311,16 +334,17 @@ export const chapterList=(templates:Template[])=>[
       <h3>Vittoria</h3>
       <p>Servono <b>entrambe</b> le condizioni, nello stesso momento:</p>
       <ul>
-        <li><b>Valigetta consegnata</b> — chi la porta ha concluso un round dentro il <b>punto di consegna</b>.</li>
+        <li><b>Obiettivo completato</b> — la valigetta o l’informatore hanno concluso un round dentro il <b>punto di consegna</b> in mano a chi li porta; nella missione 02 basta aver lanciato la <b>PURGA</b>.</li>
         <li><b>Estrazione</b> — <b>ogni operativo ancora vivo si trova nel punto di consegna</b> alla fine del round.</li>
       </ul>
       <p>Chi è a terra <b>non conta</b> per l’estrazione, ma resta indietro: se volete portarli fuori davvero, rianimateli prima.</p>
-      <p>La missione ha quattro fasi e la plancia dice sempre quale state giocando: <b>RETE</b>, <b>RECUPERO</b>, <b>TRASPORTO</b>, <b>ESTRAZIONE</b>.</p>
+      <p>Ogni missione è divisa in fasi e la plancia dice sempre quale state giocando (per la valigetta: <b>RETE</b>, <b>RECUPERO</b>, <b>TRASPORTO</b>, <b>ESTRAZIONE</b>).</p>
       <h3>Sconfitta</h3>
       <p>Basta <b>una</b> di queste:</p>
       <ul>
         <li><b>Tutta la squadra fuori combattimento</b> nello stesso round: non resta nessuno per rianimare.</li>
         <li><b>Allarme al 100%</b>: la Helix satura il settore e il segnale clandestino è perduto.</li>
+        <li><b>Informatore ucciso</b> (missione 03).</li>
       </ul>
       <div className="manual-callout"><Trophy size={16}/><p>Errore classico: aprire la teca al terzo round e poi impiegarne sei per tornare indietro, raccogliendo presidi a ogni stanza. <b>Studiate la via del ritorno prima di prendere la valigetta</b>, non dopo.</p></div>
       <div className="manual-callout"><DoorOpen size={16}/><p>Secondo errore classico: consegnare la valigetta con mezza squadra sparpagliata dall’altra parte della mappa. La consegna <b>non chiude la partita</b>: la chiude l’ultimo operativo che entra nella stanza.</p></div>
@@ -332,7 +356,7 @@ export const chapterList=(templates:Template[])=>[
       <h2>Consigli tattici</h2>
       <h3>Per la squadra</h3>
       <ul>
-        <li><b>Leggete la mappa nel round 1.</b> È diversa ogni volta: individuate subito i due nodi più vicini fra loro e la via più corta fra teca e consegna.</li>
+        <li><b>Leggete la mappa nel round 1.</b> Ogni missione ha sempre la stessa plancia: individuate subito i due nodi più vicini fra loro e la via più corta fra teca e consegna.</li>
         <li><b>Scegliete i due nodi più economici.</b> Il terzo non serve a niente: lascialo stare a meno che la sua stanza non sia sul percorso.</li>
         <li><b>Non entrate nelle stanze che non vi servono.</b> Un presidio non ingaggiato è un nemico che non esiste.</li>
         <li><b>Parlate ad alta voce.</b> Anche se si gioca a turni, chi ha la mano deve dire dove va: senza coordinarvi finite tutti nella stessa stanza sbagliata.</li>

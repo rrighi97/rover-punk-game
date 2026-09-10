@@ -36,6 +36,39 @@ function geometry(rooms: Room[]) {
   return { boxOf, centerOf };
 }
 
+// Punto esatto della porta: centro del muro condiviso fra le due stanze. Il punto medio fra
+// i centri, con stanze di taglia diversa o non allineate, cade dentro una stanza invece che
+// sul confine. Se le due stanze non condividono un muro (collegamento "a distanza") si
+// ripiega sul punto medio dei centri.
+function doorSpot(
+  ba: { left: number; top: number; width: number; height: number },
+  bb: { left: number; top: number; width: number; height: number },
+  ca: { x: number; y: number },
+  cb: { x: number; y: number },
+) {
+  const ax2 = ba.left + ba.width, ay2 = ba.top + ba.height;
+  const bx2 = bb.left + bb.width, by2 = bb.top + bb.height;
+  const gapX = Math.max(bb.left - ax2, ba.left - bx2);
+  const gapY = Math.max(bb.top - ay2, ba.top - by2);
+  const overlapX = Math.min(ax2, bx2) - Math.max(ba.left, bb.left);
+  const overlapY = Math.min(ay2, by2) - Math.max(ba.top, bb.top);
+  if (gapX >= gapY && overlapY > 0) {
+    return {
+      x: ba.left < bb.left ? (ax2 + bb.left) / 2 : (bx2 + ba.left) / 2,
+      y: (Math.max(ba.top, bb.top) + Math.min(ay2, by2)) / 2,
+      vertical: true,
+    };
+  }
+  if (overlapX > 0) {
+    return {
+      x: (Math.max(ba.left, bb.left) + Math.min(ax2, bx2)) / 2,
+      y: ba.top < bb.top ? (ay2 + bb.top) / 2 : (by2 + ba.top) / 2,
+      vertical: false,
+    };
+  }
+  return { x: (ca.x + cb.x) / 2, y: (ca.y + cb.y) / 2, vertical: Math.abs(cb.x - ca.x) >= Math.abs(cb.y - ca.y) };
+}
+
 function corridors(rooms: Room[]) {
   const seen = new Set<string>();
   const out: { key: string; a: Room; b: Room }[] = [];
@@ -118,6 +151,21 @@ export default function BoardMap({
         })}
       </g>)}
     </svg>
+    {/* PORTE COME UNITÀ: un battente disegnato sul muro condiviso di due stanze, sul perimetro,
+        verde se aperta e rosso se bloccata. Sostituisce il vecchio segnalino: la linea resta
+        solo come guida neutra del corridoio. */}
+    <div className="map-doors">
+      {corridors(rooms).map(({ key, a, b }) => {
+        const spot = doorSpot(boxOf(a), boxOf(b), centerOf(a), centerOf(b));
+        const closed = Boolean(doors?.[key]);
+        return <span
+          key={key}
+          className={`door-unit ${spot.vertical ? 'v' : 'h'} ${closed ? 'closed' : 'open'}`}
+          style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
+          {...hover(`door:${key}`, `${closed ? 'PORTA BLOCCATA' : 'PORTA APERTA'} — collega ${a.id} ${a.name} e ${b.id} ${b.name}. ${closed ? 'Va aperta con SBLOCCA PORTA prima di attraversarla.' : 'Attraversabile in manovra.'}`, 'mark')}
+        />;
+      })}
+    </div>
     {rooms.map((room) => {
       const box = boxOf(room);
       const pawns = pawnsIn(room.id);
