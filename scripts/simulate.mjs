@@ -190,7 +190,9 @@ function botTurn(g, p) {
     if ((downHere || woundedHere) && p.focus >= 2) { applyAction(p, { type: 'heal' }); actionsLeft--; continue; }
     if (hostiles.length) {
       const strongest = [...hostiles].sort((a, b) => b.hp - a.hp)[0];
-      applyAction(p, { type: chooseAbility(g, p, hostiles) ? 'ability' : 'attack', targetId: strongest.id });
+      const useAbility = chooseAbility(g, p, hostiles);
+      if (!useAbility && p.mag <= 0) { applyAction(p, { type: 'reload' }); actionsLeft--; continue; }
+      applyAction(p, { type: useAbility ? 'ability' : 'attack', targetId: strongest.id });
       actionsLeft--; continue;
     }
     if (p.characterId === 'cipher' && p.focus >= 3) {
@@ -198,6 +200,9 @@ function botTurn(g, p) {
       if (reach.some((id) => roomById(g, id).node && !g.nodes[id])) { applyAction(p, { type: 'ability' }); actionsLeft--; continue; }
     }
     if (p.characterId === 'face' && p.focus >= 3 && g.alarm >= 55) { applyAction(p, { type: 'ability' }); actionsLeft--; continue; }
+    // Ultima scelta a stanza sgombra: rabbocca il caricatore invece di sprecare l'azione (un umano
+    // ricarica nelle pause, mai sotto il fuoco).
+    if (!hostiles.length && p.mag < p.maxMag) { applyAction(p, { type: 'reload' }); actionsLeft--; continue; }
     break;
   }
 }

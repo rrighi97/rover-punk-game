@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity, AlertTriangle, ArrowRight, BookOpen, Briefcase, Check, ChevronDown, ChevronLeft, ChevronRight, CircleDot,
+  Activity, AlertTriangle, ArrowRight, BookOpen, Briefcase, Check, ChevronLeft, ChevronRight, CircleDot,
   Crosshair, Cpu, DoorOpen, Footprints, HeartPulse, LockKeyhole, LogIn, Map as MapIcon, MapPin, Radio, RotateCw,
-  Info, ShieldAlert, Skull, Smartphone, Sparkles, Swords, Target, Timer,
+  Info, RefreshCw, ShieldAlert, Skull, Smartphone, Sparkles, Swords, Timer,
   Users, Wifi, WifiOff, X, Zap,
 } from 'lucide-react';
 import Settings, { SettingsButton } from './Settings';
@@ -17,22 +17,23 @@ const OpIcon=({characterId,alt}:{characterId:string;alt:string})=><img className
 // Miniatura quadrata di un'unità Helix.
 const FoeIcon=({kind,alt}:{kind:string;alt:string})=><img className="unit-icon" src={enemyImg(kind)} alt={alt}/>;
 
-type Template = { id:string; callsign:string; role:string; specialty:string; color:string; maxHp:number; dmg:number; focus:number; weapon:string; ability:string; abilityText:string; passives:PassiveAbility[] };
+type Template = { id:string; callsign:string; role:string; specialty:string; color:string; maxHp:number; dmg:number; mag:number; focus:number; weapon:string; ability:string; abilityText:string; passives:PassiveAbility[] };
 type PlayerAction = { type:string; targetId?:string|null; roomId?:string|null };
-type Player = Template & { name:string; characterId:string; hp:number; maxFocus:number; room:string; actions:PlayerAction[]; move:null|{roomId:string}; maneuverCount:number; turnDone:boolean; connected:boolean };
+type Player = Template & { name:string; characterId:string; hp:number; maxMag:number; maxFocus:number; room:string; actions:PlayerAction[]; move:null|{roomId:string}; maneuverCount:number; turnDone:boolean; connected:boolean };
 type Enemy = { id:string; name:string; type:string; hp:number; maxHp:number; damage:number; threat:number; room:string; home:string; locked?:boolean; chasing?:string|null };
 type FeedItem = { time:string; tone:string; text:string };
 type Hostage = { room:string; holder:string|null; hp:number; maxHp:number; freed:boolean; delivered:boolean };
 type Narrative = { objective:string; vaultUnlocked:string; opening:string; goalHeadline:string; purged?:string };
 type MissionMeta = { id:string; title:string; tagline:string; brief:string; goalHeadline:string; intro:string; objectives:string[]; mapNote:string };
 type EnemyRosterEntry = { key:string; tier:number; name:string; type:string; hp:number; damage:number; threat:number; note:string; deploy:string };
-type Game ={ code:string; phase:'lobby'|'active'|'victory'|'defeat'; round:number; alarm:number; alarmSpawns:number[]; breach:number; missionId:string; title:string; location:string; objective:string; narrative:Narrative; map:Room[]; doors:Record<string,boolean>; nodes:Record<string,boolean>; startRoom:string; vaultRoom:string; dropRoom:string; nodeRooms:string[]; nodesRequired:number; caseRoom:string|null; caseHolder:string|null; caseDelivered:boolean; caseAt:string|null; purged:boolean; hostage:Hostage; hostageAt:string|null; vaultOpen:boolean; players:Player[]; enemies:Enemy[]; feed:FeedItem[]; event:{title:string;text:string}; waiting:string[]; turnOrder:string[]; activePlayerId:string|null };
+type Game ={ code:string; phase:'lobby'|'active'|'victory'|'defeat'; maxPlayers:number; round:number; alarm:number; alarmSpawns:number[]; breach:number; missionId:string; title:string; location:string; objective:string; narrative:Narrative; map:Room[]; doors:Record<string,boolean>; nodes:Record<string,boolean>; startRoom:string; vaultRoom:string; dropRoom:string; nodeRooms:string[]; nodesRequired:number; caseRoom:string|null; caseHolder:string|null; caseDelivered:boolean; caseAt:string|null; purged:boolean; hostage:Hostage; hostageAt:string|null; vaultOpen:boolean; players:Player[]; enemies:Enemy[]; feed:FeedItem[]; event:{title:string;text:string}; waiting:string[]; turnOrder:string[]; activePlayerId:string|null };
 type Snapshot = { game:Game|null; templates:Template[]; enemyRoster:EnemyRosterEntry[]; missions:MissionMeta[]; networkUrl:string; networkUrls?:string[] };
 
 const emptySnapshot:Snapshot={game:null,templates:[],enemyRoster:[],missions:[],networkUrl:''};
 const ACTIONS_PER_TURN=2; // azioni (non manovra) giocabili in un turno — deve restare allineato a server.mjs
 // Valori delle azioni base mostrati sui pulsanti del telefono — allineati a server.mjs.
 const HEAL_FOCUS=2, HEAL_AMOUNT=12, REVIVE_RATIO=0.25, HACK_DRONE_DAMAGE=10;
+const HACK_FOCUS=2, UNLOCK_FOCUS=1;
 const hasPassive=(player:{passives?:PassiveAbility[]},passiveId:string)=>Boolean(player.passives?.some((passive)=>passive.id===passiveId));
 const enemyBadge=(enemy:Enemy)=>enemy.type==='DRONE'?'DR':enemy.type==='ÉLITE'?'EL':'SEC';
 const vaultNoun=(game:Game)=>game.missionId==='nucleo'?'NUCLEO':game.missionId==='ostaggio'?'CELLA':'TECA';
@@ -142,65 +143,28 @@ function useSnapshot(code?:string){
   return {snapshot,setSnapshot,offline};
 }
 
-// Selettore scheda personaggio: un bottone che apre un menu a tendina in stile plancia
-// (il <select> nativo del browser resta bianco e non si può ritingere). Stessa logica di
-// prima — un personaggio già assegnato a un altro slot resta bloccato — ma qui lo segnala
-// un piccolo indicatore rosso a sinistra invece del solo grigiore del <option disabled>.
-function CharacterPicker({options,value,isTaken,onSelect}:{options:Template[];value:string;isTaken:(id:string)=>boolean;onSelect:(id:string)=>void}){
-  const [open,setOpen]=useState(false);
-  const wrapRef=useRef<HTMLDivElement>(null);
-  useEffect(()=>{
-    if(!open)return;
-    const onDocClick=(e:MouseEvent)=>{if(wrapRef.current&&!wrapRef.current.contains(e.target as Node))setOpen(false);};
-    document.addEventListener('mousedown',onDocClick);
-    return ()=>document.removeEventListener('mousedown',onDocClick);
-  },[open]);
-  const current=options.find((o)=>o.id===value);
-  return <div className="char-picker" ref={wrapRef}>
-    <button type="button" className="char-picker-btn" onClick={(e)=>{e.stopPropagation();setOpen((o)=>!o);}}>
-      <span>{current?`${current.callsign} // ${current.role}`:'SELEZIONA PERSONAGGIO'}</span>
-      <ChevronDown size={14}/>
-    </button>
-    {open&&<ul className="char-picker-menu">
-      <li><button type="button" className="unset" onClick={()=>{onSelect('');setOpen(false);}}><span>— SCEGLI SCHEDA —</span></button></li>
-      {options.map((option)=>{
-        const taken=isTaken(option.id);
-        return <li key={option.id}>
-          <button type="button" disabled={taken} className={taken?'taken':''} onClick={()=>{onSelect(option.id);setOpen(false);}}>
-            {taken&&<i className="char-picker-flag" aria-hidden="true"/>}
-            <span>{option.callsign} // {option.role}</span>
-          </button>
-        </li>;
-      })}
-    </ul>}
-  </div>;
-}
 
 function Setup({templates,missions,enemyRoster,onCreated}:{templates:Template[];missions:MissionMeta[];enemyRoster:EnemyRosterEntry[];onCreated:(g:Game)=>void}){
-  const [count,setCount]=useState(3);
-  // Nessuna scheda pre-assegnata: ogni slot parte vuoto e va scelto a mano prima di creare il canale.
-  const [picks,setPicks]=useState(()=>Array.from({length:6},(_,i)=>({name:`OPERATIVO 0${i+1}`,characterId:''})));
+  // La plancia non assegna più le schede: sceglie missione e tetto di posti, poi crea il canale.
+  // Nome e personaggio li scelgono i giocatori dal telefono in fase di collegamento.
+  const [count,setCount]=useState(4);
   const [selected,setSelected]=useState(templates[0]?.id||'');
-  const missingPick=picks.slice(0,count).some((p)=>!p.characterId);
   const [missionId,setMissionId]=useState(missions[0]?.id||'valigetta');
   const [error,setError]=useState('');
+  const [busy,setBusy]=useState(false);
   const [settings,setSettings]=useState(false);
   const [gallery,setGallery]=useState(false);
   const [briefMission,setBriefMission]=useState<MissionMeta|null>(null);
   const preview=templates.find((t)=>t.id===selected)||templates[0];
-  // Nome e personaggio sono indipendenti: il nome resta quello scelto per lo slot
-  // anche cambiando scheda. Nel dossier mostriamo il nome del giocatore che ha quel personaggio.
-  const ownerName=picks.slice(0,count).find((p)=>p.characterId===selected)?.name;
-  const update=(index:number,key:'name'|'characterId',value:string)=>setPicks((old)=>old.map((p,i)=>i===index?{...p,[key]:value}:p));
-  const create=async()=>{try{setError('');if(missingPick){playSfx('alert');setError('Assegna una scheda a ogni operativo.');return;}const data=await api('/api/setup',{method:'POST',body:JSON.stringify({players:picks.slice(0,count),missionId})});onCreated(data.game);}catch(e){playSfx('alert');setError((e as Error).message);}};
+  const create=async()=>{try{setBusy(true);setError('');const data=await api('/api/setup',{method:'POST',body:JSON.stringify({missionId,maxPlayers:count})});onCreated(data.game);}catch(e){playSfx('alert');setError((e as Error).message);setBusy(false);}};
   if(!preview)return <div className="loading">INIZIALIZZAZIONE ARCHIVIO OPERATIVI...</div>;
   return <main className="setup-shell">
     <header className="setup-header"><div className="brand"><span className="brand-mark">R//P</span><div><b>ROVERPUNK</b><small>MISSION CONTROL</small></div></div><div className="step-line"><span className="active">01 CONFIGURAZIONE</span><i/><span>02 COLLEGAMENTO</span><i/><span>03 OPERAZIONE</span></div><div className="header-tools"><SettingsButton onOpen={()=>setSettings(true)}/><span className="local-tag"><CircleDot size={13}/> SISTEMA LOCALE</span></div></header>
     <section className="setup-grid">
       <aside className="setup-config panel">
         <div className="panel-kicker">PARAMETRI MISSIONE</div>
-        <h1>Componi la squadra</h1>
-        <div className="field-label">NUMERO OPERATIVI <b>{count}</b></div>
+        <h1>Apri il canale</h1>
+        <div className="field-label">POSTI OPERATIVO <b>{count}</b></div>
         <div className="count-picker">{[2,3,4,5,6].map((n)=><button className={count===n?'active':''} onClick={()=>setCount(n)} key={n}>{n}</button>)}</div>
         <div className="field-label">LIVELLO DI MINACCIA</div>
         <div className="threat-fixed"><b>UNICO</b><small>ROVERPUNK ha una sola taratura e non fa sconti: allarme che corre, presidi che non mollano più la presa. Nessun tempo limite per round.</small></div>
@@ -209,34 +173,32 @@ function Setup({templates,missions,enemyRoster,onCreated}:{templates:Template[];
           const [num,name]=m.title.split(' // ');
           return <div className="mission-brief-wrap" key={m.id}>
             <button type="button" className={`mission-brief ${missionId===m.id?'selected':''}`} onClick={()=>setMissionId(m.id)}>
-              <small>{num}</small><b>{name||m.title}</b><p>{m.intro}</p>
+              <small>{num}</small><b>{name||m.title}</b>
             </button>
-            <button type="button" className="mission-info" aria-label="Apri il briefing della missione" onClick={()=>setBriefMission(m)}><Info size={13}/></button>
+            <button type="button" className="mission-info" aria-label="Apri il briefing della missione" onClick={()=>setBriefMission(m)}><Info size={18}/></button>
           </div>;
         })}</div>
       </aside>
       <section className="roster panel">
-        <div className="roster-head"><span className="panel-kicker">ASSEGNAZIONE OPERATIVI // {count} SLOT</span><button type="button" className="brief-open compact" onClick={()=>setGallery(true)}><Users size={13}/> SFOGLIA LE SCHEDE</button></div>
-        <p className="roster-note">Nome e personaggio sono indipendenti: scegli un nome qualsiasi e una qualsiasi scheda. Ogni personaggio può essere assegnato a un solo operativo.</p>
-        <div className="slot-list">{picks.slice(0,count).map((pick,index)=>{
-          const t=templates.find((x)=>x.id===pick.characterId)||null;
-          return <article className={`slot ${t&&selected===t.id?'selected':''} ${t?'':'unset'}`} style={{'--accent':t?.color||'#5b7873'} as React.CSSProperties} key={index} onPointerDown={()=>{if(t)setSelected(t.id);}}>
-            <span className="slot-num">0{index+1}</span><span className="avatar">{t?<OpIcon characterId={t.id} alt={t.callsign}/>:'—'}</span>
-            <label><small>NOME GIOCATORE</small><input value={pick.name} maxLength={14} onChange={(e)=>update(index,'name',e.target.value)}/></label>
-            <div className="slot-field"><small>SCHEDA PERSONAGGIO</small><CharacterPicker options={templates} value={pick.characterId} isTaken={(id)=>picks.slice(0,count).some((p,i)=>i!==index&&p.characterId===id)} onSelect={(id)=>{update(index,'characterId',id);if(id)setSelected(id);}}/></div>
-            <ChevronRight size={18}/>
-          </article>})}</div>
+        <div className="roster-head"><span className="panel-kicker">SCHEDE OPERATIVE // {templates.length} PROFILI</span><button type="button" className="brief-open compact" onClick={()=>setGallery(true)}><Users size={13}/> SFOGLIA LE SCHEDE</button></div>
+        <p className="roster-note">La squadra si compone dai telefoni: ogni giocatore, dopo essersi collegato col codice, sceglie nome e personaggio da questa lista. Ogni scheda va a un solo operativo. Puoi avviare l’operazione quando sono collegati almeno 2 operativi (fino a {count}).</p>
+        <div className="setup-cards">{templates.map((t)=>
+          <button type="button" key={t.id} className={`setup-card ${selected===t.id?'selected':''}`} style={{'--accent':t.color} as React.CSSProperties} onClick={()=>setSelected(t.id)}>
+            <span className="avatar"><OpIcon characterId={t.id} alt={t.callsign}/></span>
+            <span className="setup-card-id"><b>{t.callsign}</b><small>{t.role}</small></span>
+          </button>
+        )}</div>
       </section>
       <aside className="character-preview panel" style={{'--accent':preview.color} as React.CSSProperties}>
         <div className="panel-kicker">DOSSIER PERSONAGGIO</div><div className="portrait-large"><img src={charImg(preview.id)} alt={preview.callsign}/><i>ARCHIVIO<br/>#{preview.id.toUpperCase()}-09</i></div>
-        <small className="role">SCHEDA {preview.callsign} · {preview.role} // {preview.specialty}</small><h2>{ownerName||preview.callsign}</h2>
-        <div className="loadout"><span><small>INTEGRITÀ</small><b>{preview.maxHp}</b></span><span><small>DANNO</small><b>+{preview.dmg}</b></span><span><small>FOCUS</small><b>{preview.focus}</b></span></div>
-        <div className="ability-card"><Zap size={18}/><div><small>ABILITÀ // CONSUMA 3 FOCUS</small><b>{preview.ability}</b><p>{preview.abilityText}</p></div></div>
+        <small className="role">SCHEDA {preview.callsign} · {preview.role} // {preview.specialty}</small><h2>{preview.callsign}</h2>
+        <div className="loadout"><span><small>INTEGRITÀ</small><b>{preview.maxHp}</b></span><span><small>DANNO</small><b>+{preview.dmg}</b></span><span><small>CARICATORE</small><b>{preview.mag}</b></span><span><small>FOCUS</small><b>{preview.focus}</b></span></div>
+        <div className="ability-card"><Zap size={18}/><div><small>ABILITÀ // -3 FOCUS</small><b>{preview.ability}</b><p>{preview.abilityText}</p></div></div>
         <PassiveAbilities passives={preview.passives}/>
         <div className="weapon"><Crosshair size={15}/> ARMA: <b>{preview.weapon} +{preview.dmg}</b></div>
       </aside>
     </section>
-    <footer className="setup-footer"><span className="error">{error||(missingPick?'Assegna una scheda a ogni operativo per continuare.':'')}</span><button className="primary-btn" data-sfx="confirm" onClick={create} disabled={missingPick}>CREA CANALE DI GIOCO <ArrowRight size={18}/></button></footer>
+    <footer className="setup-footer"><span className="error">{error}</span><button className="primary-btn" data-sfx="confirm" onClick={create} disabled={busy}>CREA CANALE DI GIOCO <ArrowRight size={18}/></button></footer>
     {settings&&<Settings templates={templates} database={<DatabaseSection templates={templates} enemyRoster={enemyRoster}/>} onClose={()=>setSettings(false)}/>}
     {gallery&&<CharacterGallery templates={templates} startId={selected} onClose={()=>setGallery(false)}/>}
     {briefMission&&<MissionBriefing mission={briefMission} onClose={()=>setBriefMission(null)}/>}
@@ -244,7 +206,9 @@ function Setup({templates,missions,enemyRoster,onCreated}:{templates:Template[];
 }
 
 // GALLERIA SCHEDE: sfoglia tutti i personaggi con abilità e statistiche prima di scegliere.
-function CharacterGallery({templates,startId,onClose}:{templates:Template[];startId?:string;onClose:()=>void}){
+// `action` (telefono) aggiunge in fondo il comando per la scheda mostrata, es. SELEZIONA.
+// `takenBy` (telefono) restituisce il nome di chi ha già confermato la scheda: la card diventa grigia.
+function CharacterGallery({templates,startId,onClose,action,takenBy}:{templates:Template[];startId?:string;onClose:()=>void;action?:(t:Template)=>React.ReactNode;takenBy?:(t:Template)=>string|undefined}){
   const last=templates.length-1;
   const start=Math.max(0,templates.findIndex((t)=>t.id===startId));
   const [index,setIndex]=useState(start);
@@ -252,25 +216,27 @@ function CharacterGallery({templates,startId,onClose}:{templates:Template[];star
   useEffect(()=>{const onKey=(e:KeyboardEvent)=>{if(e.key==='Escape')onClose();if(e.key==='ArrowRight')setIndex((i)=>Math.min(templates.length-1,i+1));if(e.key==='ArrowLeft')setIndex((i)=>Math.max(0,i-1));};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey);},[onClose,templates.length]);
   const t=templates[index];
   if(!t)return null;
+  const holder=takenBy?.(t);
   return <div className="manual-overlay">
     <button className="manual-scrim" aria-label="Chiudi" onClick={onClose}/>
     <section className="manual gallery">
       <header className="manual-head"><div className="brand"><span className="brand-mark">R//P</span><div><b>SCHEDE OPERATIVI</b><small>ARCHIVIO COMPLETO // {templates.length} PROFILI</small></div></div><button className="manual-close" onClick={onClose} aria-label="Chiudi"><X size={18}/></button></header>
       <div className="gallery-body">
         <button className="gallery-arrow" onClick={()=>step(-1)} disabled={index===0} aria-label="Precedente"><ChevronLeft size={26}/></button>
-        <article className="gallery-card" style={{'--accent':t.color} as React.CSSProperties} key={t.id}>
-          <div className="portrait-large"><img src={charImg(t.id)} alt={t.callsign}/><i>ARCHIVIO<br/>#{t.id.toUpperCase()}-09</i></div>
+        <article className={`gallery-card ${holder?'taken':''}`} style={{'--accent':t.color} as React.CSSProperties} key={t.id}>
+          <div className="portrait-large"><img src={charImg(t.id)} alt={t.callsign}/><i>ARCHIVIO<br/>#{t.id.toUpperCase()}-09</i>{holder&&<em className="taken-badge">OCCUPATO · {holder}</em>}</div>
           <div className="gallery-info">
             <small className="role">{t.role} // {t.specialty}</small><h2>{t.callsign}</h2>
-            <div className="loadout"><span><small>INTEGRITÀ</small><b>{t.maxHp}</b></span><span><small>DANNO</small><b>+{t.dmg}</b></span><span><small>FOCUS</small><b>{t.focus}</b></span></div>
+            <div className="loadout"><span><small>INTEGRITÀ</small><b>{t.maxHp}</b></span><span><small>DANNO</small><b>+{t.dmg}</b></span><span><small>CARICATORE</small><b>{t.mag}</b></span><span><small>FOCUS</small><b>{t.focus}</b></span></div>
             <div className="weapon"><Crosshair size={15}/> ARMA: <b>{t.weapon} +{t.dmg}</b></div>
+            {action&&<div className="gallery-select">{action(t)}</div>}
           </div>
-          <div className="ability-card"><Zap size={18}/><div><small>ABILITÀ // CONSUMA 3 FOCUS</small><b>{t.ability}</b><p>{t.abilityText}</p></div></div>
+          <div className="ability-card"><Zap size={18}/><div><small>ABILITÀ // -3 FOCUS</small><b>{t.ability}</b><p>{t.abilityText}</p></div></div>
           <PassiveAbilities passives={t.passives}/>
         </article>
         <button className="gallery-arrow" onClick={()=>step(1)} disabled={index===last} aria-label="Successivo"><ChevronRight size={26}/></button>
       </div>
-      <footer className="manual-foot"><span>OPERATIVO {String(index+1).padStart(2,'0')} / {String(templates.length).padStart(2,'0')} — {t.callsign} // {t.role}</span><div className="gallery-dots">{templates.map((x,i)=><button key={x.id} className={i===index?'on':''} style={{'--accent':x.color} as React.CSSProperties} onClick={()=>setIndex(i)} aria-label={x.callsign}/>)}</div><button className="ghost-btn" onClick={onClose}>CHIUDI</button></footer>
+      <footer className="manual-foot"><span>OPERATIVO {String(index+1).padStart(2,'0')} / {String(templates.length).padStart(2,'0')} — {t.callsign} // {t.role}</span><div className="gallery-dots">{templates.map((x,i)=><button key={x.id} className={`${i===index?'on':''} ${takenBy?.(x)?'taken':''}`} style={{'--accent':x.color} as React.CSSProperties} onClick={()=>setIndex(i)} aria-label={x.callsign}/>)}</div><button className="ghost-btn" onClick={onClose}>CHIUDI</button></footer>
     </section>
   </div>;
 }
@@ -324,21 +290,27 @@ function Lobby({game,templates,networkUrl,onStart,onReset}:{game:Game;templates:
   const [error,setError]=useState('');
   const [settings,setSettings]=useState(false);
   const [confirmOpen,setConfirmOpen]=useState(false);
+  const joined=game.players.length;
   const linked=game.players.filter((p)=>p.connected).length;
-  const allLinked=game.players.length>0&&linked===game.players.length;
+  const freeSeats=Math.max(0,game.maxPlayers-joined);
+  const canStart=joined>=2;
+  const allLinked=joined>0&&linked===joined;
   const start=async()=>{try{setConfirmOpen(false);setError('');const data=await api('/api/start',{method:'POST',body:JSON.stringify({code:game.code})});onStart(data.game);}catch(e){playSfx('alert');setError((e as Error).message);}};
   return <main className="lobby-shell">
     <header className="setup-header"><div className="brand"><span className="brand-mark">R//P</span><div><b>ROVERPUNK</b><small>UPLINK LOBBY</small></div></div><div className="step-line"><span>01 CONFIGURAZIONE</span><i/><span className="active">02 COLLEGAMENTO</span><i/><span>03 OPERAZIONE</span></div><div className="header-tools"><SettingsButton onOpen={()=>setSettings(true)}/><span className="local-tag"><Wifi size={13}/> CANALE APERTO</span></div></header>
     <section className="lobby-content">
       <div className="access-block"><small>CODICE PARTITA</small><strong>{game.code}</strong><p>Su ogni telefono, apri questo indirizzo in orizzontale:</p><code>{playerUrl}</code><div className="qr-block"><QrCode text={playerUrl}/><span>INQUADRA IL CODICE COL TELEFONO</span></div><div className="signal"><i/><i/><i/><i/><span>RETE LOCALE ATTIVA</span></div></div>
-      <div className="connection-list">{game.players.map((p,index)=><article key={p.id} style={{'--accent':p.color} as React.CSSProperties} className={p.connected?'online':''}><span className="connection-index">0{index+1}</span><span className="avatar"><OpIcon characterId={p.characterId} alt={p.callsign}/></span><div><small>{p.role}</small><b>{p.name}</b></div><span className="connection-state">{p.connected?<><Wifi size={15}/> COLLEGATO</>:<><WifiOff size={15}/> IN ATTESA</>}</span></article>)}</div>
+      <div className="connection-list">
+        {game.players.map((p,index)=><article key={p.id} style={{'--accent':p.color} as React.CSSProperties} className={p.connected?'online':''}><span className="connection-index">0{index+1}</span><span className="avatar"><OpIcon characterId={p.characterId} alt={p.callsign}/></span><div><small>{p.role}</small><b>{p.name}</b></div><span className="connection-state">{p.connected?<><Wifi size={15}/> COLLEGATO</>:<><WifiOff size={15}/> IN ATTESA</>}</span></article>)}
+        {Array.from({length:freeSeats}).map((_,i)=><article key={`free-${i}`} className="waiting"><span className="connection-index">0{joined+i+1}</span><span className="avatar">—</span><div><small>POSTO LIBERO</small><b>In attesa di un operativo</b></div><span className="connection-state"><Smartphone size={15}/> DAL TELEFONO</span></article>)}
+      </div>
     </section>
-    <footer className="setup-footer"><button className="ghost-btn" onClick={onReset}>RICOMPONI SQUADRA</button><span className="error">{error}</span><span>{linked} / {game.players.length} DISPOSITIVI COLLEGATI</span><button className="primary-btn" data-sfx="confirm" onClick={()=>allLinked?start():setConfirmOpen(true)}>AVVIA OPERAZIONE <Swords size={18}/></button></footer>
+    <footer className="setup-footer"><button className="ghost-btn" onClick={onReset}>ANNULLA E RICOMINCIA</button><span className="error">{error||(!canStart?'Servono almeno 2 operativi collegati.':'')}</span><span>{linked} / {joined} COLLEGATI · {joined} / {game.maxPlayers} POSTI</span><button className="primary-btn" data-sfx="confirm" onClick={()=>allLinked?start():setConfirmOpen(true)}>AVVIA OPERAZIONE <Swords size={18}/></button></footer>
     {confirmOpen&&<div className="settings-overlay">
       <button className="settings-scrim" aria-label="Chiudi" onClick={()=>setConfirmOpen(false)}/>
       <div className="panel settings-card" style={{width:'min(440px,100%)'}}>
       <div className="settings-head"><div><small>COLLEGAMENTO INCOMPLETO</small><b>AVVIARE COMUNQUE?</b></div></div>
-      <div className="settings-body"><p>Non tutti i dispositivi sono collegati: <b>{linked} / {game.players.length}</b>. Puoi avviare lo stesso per vedere plancia e mappa, ma i giocatori non collegati resteranno in attesa e il round non si chiude finché nessun telefono è connesso.</p></div>
+      <div className="settings-body"><p>Non tutti i dispositivi sono collegati: <b>{linked} / {joined}</b>. Puoi avviare lo stesso per vedere plancia e mappa, ma i giocatori non collegati resteranno in attesa e il round non si chiude finché nessun telefono è connesso.</p></div>
       <div className="settings-foot" style={{justifyContent:'space-between'}}><button className="ghost-btn" onClick={()=>setConfirmOpen(false)}>ANNULLA</button><button className="primary-btn" data-sfx="confirm" onClick={start}>AVVIA COMUNQUE <Swords size={18}/></button></div>
     </div></div>}
     {settings&&<Settings templates={templates} onClose={()=>setSettings(false)}/>}
@@ -380,17 +352,19 @@ function AlarmReadout({alarm}:{alarm:number}){
 // Quando un HELIX SEGUGIO entra per una soglia d'allarme, confrontiamo la lista nemici a ogni
 // poll: gli id nuovi (non ancora visti su questo game.code) vanno in coda per l'avviso a tutto
 // schermo. Se ne entrano più di uno nello stesso round restano in coda e si mostrano uno alla volta.
+// Il confronto vale solo fra due poll entrambi a partita attiva: il presidio iniziale nasce
+// all'avvio (/api/start, lobby → active) e non deve contare come minaccia nuova.
 function useSpawnAlerts(game:Game|null){
-  const seen=useRef<{code:string;ids:Set<string>}>({code:'',ids:new Set()});
+  const seen=useRef<{code:string;phase:string;ids:Set<string>}>({code:'',phase:'',ids:new Set()});
   const [queue,setQueue]=useState<Enemy[]>([]);
   useEffect(()=>{
     if(!game)return;
     const ids=new Set(game.enemies.map((e)=>e.id));
     const known=seen.current;
-    if(known.code!==game.code){seen.current={code:game.code,ids};return;}
+    seen.current={code:game.code,phase:game.phase,ids};
+    if(known.code!==game.code||known.phase!=='active'||game.phase!=='active')return;
     const fresh=game.enemies.filter((e)=>e.hp>0&&!known.ids.has(e.id));
-    seen.current={code:game.code,ids};
-    if(fresh.length&&game.phase==='active'){playSfx('alert');setQueue((q)=>[...q,...fresh]);}
+    if(fresh.length){playSfx('alert');setQueue((q)=>[...q,...fresh]);}
   },[game]);
   // `dismiss` stabile: se cambiasse a ogni poll (800ms) il timer di chiusura di SpawnAlert
   // ripartirebbe da capo e l'avviso non si chiuderebbe mai da solo.
@@ -444,7 +418,7 @@ function Board({game,templates,missions,offline,onReset}:{game:Game;templates:Te
       <section className="tactical panel"><div className="map-head"><span>PIANTA // {game.location}</span><span className="stage-tag">{stage.label} · {stage.short}</span><span>{roomsOf(game).length} STANZE · RILEVAMENTO PASSIVO</span></div><TacticalMap game={game}/><div className="legend"><span><i className="dot friendly"/>SQUADRA</span><span><i className="dot hostile"/>OSTILE</span><span><i className="dot start"/>PARTENZA</span><span><i className="dot system"/>NODO</span>{game.missionId!=='nucleo'&&<span><i className="dot case"/>{cargo.label}</span>}<span><i className="dot exit"/>CONSEGNA</span><span><i className="dot hunting"/>INGAGGIATO</span><span><i className="dot door-open"/>PORTA APERTA</span><span><i className="dot door-closed"/>PORTA BLOCCATA</span><strong className={linked===0?'stalled':''}>{status}</strong></div></section>
       <aside className="panel threats-panel">{(()=>{const living=game.enemies.filter((e)=>e.hp>0);return <><div className="panel-kicker">03 // MINACCE · {living.length}</div>{living.map((e)=>{const contested=game.players.some((p)=>p.hp>0&&p.room===e.room);return <div className={`threat-card ${e.type==='ÉLITE'?'elite':''} ${contested?'contested':''}`} key={e.id}><span className="threat-icon"><FoeIcon kind={enemyKind(e.id)} alt={e.type}/></span><div><small>{e.type} // {e.room} {roomOf(game,e.room)?.name||''} · DANNO +{e.damage}</small><b>{e.name}</b><Meter value={e.hp} max={e.maxHp} tone="red"/><em>{contested?'IN CONTATTO CON LA SQUADRA':e.locked?`VI INSEGUE · ${e.hp}/${e.maxHp}`:`DI PRESIDIO · ${e.hp}/${e.maxHp}`}</em></div></div>;})}</>;})()}<div className="section-label">RISPOSTA DEL SISTEMA</div><div className="gm-card"><small>GM AUTONOMO // PREVISIONE</small><b>{game.event.title}</b><p>{game.event.text}</p></div></aside>
     </section>
-    <footer className="squadbar"><div className="squad-title"><Users size={19}/><span>SQUADRA<br/><b>{alivePlayers} OPERATIVI</b></span></div>{game.players.map((p)=>{const isTurn=game.phase==='active'&&p.id===game.activePlayerId;return <article className={`operative ${p.hp<=0?'down':''} ${isTurn?'active-turn':''}`} key={p.id} style={{'--accent':p.color} as React.CSSProperties}><span className="portrait"><OpIcon characterId={p.characterId} alt={p.callsign}/></span><div className="op-name"><b>{p.name}</b><small>{p.role} · {p.connected?'ONLINE':'OFFLINE'}</small><span className="op-room"><MapPin size={10}/> {p.room} {roomOf(game,p.room)?.name||''}</span><PassiveAbilities passives={p.passives} compact/></div><div className="hp"><Meter value={p.hp} max={p.maxHp}/><small>INTEGRITÀ {p.hp}/{p.maxHp}</small></div><div className={`status ${isTurn?'ready':''}`}>{p.hp<=0?'K.O.':isTurn?'IN GIOCO':p.turnDone?'TURNO CHIUSO':'IN CODA'}</div></article>;})}</footer>
+    <footer className="squadbar"><div className="squad-title"><Users size={19}/><span>SQUADRA<br/><b>{alivePlayers} OPERATIVI</b></span></div>{game.players.map((p)=>{const isTurn=game.phase==='active'&&p.id===game.activePlayerId;return <article className={`operative ${p.hp<=0?'down':''} ${isTurn?'active-turn':''}`} key={p.id} style={{'--accent':p.color} as React.CSSProperties}><span className="portrait"><OpIcon characterId={p.characterId} alt={p.callsign}/></span><div className="op-name"><b>{p.name}</b><small>{p.role} · {p.connected?'ONLINE':'OFFLINE'}</small><span className="op-room"><MapPin size={10}/> {p.room} {roomOf(game,p.room)?.name||''}</span><PassiveAbilities passives={p.passives} compact/></div><div className="hp"><Meter value={p.hp} max={p.maxHp}/><small>INTEGRITÀ {p.hp}/{p.maxHp} · CAR {p.mag}/{p.maxMag}</small></div><div className={`status ${isTurn?'ready':''}`}>{p.hp<=0?'K.O.':isTurn?'IN GIOCO':p.turnDone?'TURNO CHIUSO':'IN CODA'}</div></article>;})}</footer>
     {(game.phase==='victory'||game.phase==='defeat')&&<div className={`outcome ${game.phase}`}><div><small>OPERAZIONE CONCLUSA</small><h2>{outcome.title}</h2><p>{outcome.text}</p><button className="primary-btn" data-sfx="confirm" onClick={onReset}>NUOVA OPERAZIONE <RotateCw size={17}/></button></div></div>}
     {briefing&&mission&&<MissionBriefing mission={mission} onClose={()=>setBriefing(false)}/>}
     {settings&&<Settings templates={templates} onReset={onReset} onClose={()=>setSettings(false)} controls={game.phase==='active'?{turnLabel:`Di mano: ${active?.name??'—'}.`,roundLabel:`Round ${String(game.round).padStart(2,'0')} · ${doneTurns}/${alivePlayers} turni chiusi.`,onSkipTurn:skipTurn,onForceRound:forceRound}:undefined}/>}
@@ -460,9 +434,15 @@ function PlayerJoin(){
   const {snapshot,offline}=useSnapshot(searchCode);
   const [error,setError]=useState('');
   const [settings,setSettings]=useState(false);
-  const [gallery,setGallery]=useState(false);
+  const [viewing,setViewing]=useState('');
+  const [repick,setRepick]=useState(false);
+  const [name,setName]=useState('');
+  const [joining,setJoining]=useState('');
   const [session,setSession]=useState<{code:string;playerId:string;deviceId:string}|null>(()=>{try{return JSON.parse(localStorage.getItem('roverpunk-session')||'null');}catch{return null;}});
-  const player=session&&session.code===snapshot.game?.code?snapshot.game.players.find((p)=>p.id===session.playerId):null;
+  // Un solo deviceId per telefono, riusato anche quando si cambia scheda in lobby.
+  const [deviceId]=useState(()=>session?.deviceId||makeDeviceId());
+  const game=session?.code===snapshot.game?.code||searchCode===snapshot.game?.code?snapshot.game:null;
+  const player=session&&session.code===snapshot.game?.code?snapshot.game?.players.find((p)=>p.id===session.playerId):null;
   // I browser dei telefoni congelano i timer quando lo schermo si spegne o si cambia app:
   // al ritorno in primo piano serve un ping immediato per tornare subito online.
   useEffect(()=>{if(!session)return;const ping=()=>api('/api/ping',{method:'POST',body:JSON.stringify(session)}).catch(()=>{});void ping();const timer=setInterval(ping,4000);
@@ -470,16 +450,72 @@ function PlayerJoin(){
     document.addEventListener('visibilitychange',wake);window.addEventListener('focus',wake);window.addEventListener('pageshow',wake);
     return()=>{clearInterval(timer);document.removeEventListener('visibilitychange',wake);window.removeEventListener('focus',wake);window.removeEventListener('pageshow',wake);};},[session]);
   const find=()=>{setError('');setSearchCode(code.trim().toUpperCase());};
-  const join=async(playerId:string)=>{try{const deviceId=makeDeviceId();await api('/api/join',{method:'POST',body:JSON.stringify({code:searchCode,playerId,deviceId})});const next={code:searchCode,playerId,deviceId};localStorage.setItem('roverpunk-session',JSON.stringify(next));setSession(next);playSfx('confirm');}catch(e){playSfx('alert');setError((e as Error).message);}};
-  if(!session||!player){return <main className="join-shell"><section className="join-card"><div className="join-tools"><SettingsButton compact onOpen={()=>setSettings(true)}/></div><div className="brand centered"><span className="brand-mark">R//P</span><div><b>ROVERPUNK</b><small>OPERATIVE UPLINK</small></div></div><div className="uplink-icon"><Smartphone/><i/><Radio/></div><small>INSERISCI CODICE PARTITA</small><form className="code-entry" onSubmit={(e)=>{e.preventDefault();find();}}><input value={code} onChange={(e)=>setCode(e.target.value.toUpperCase())} placeholder="NEON-77" maxLength={7} autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go" aria-label="Codice partita"/><button type="submit" aria-label="Collegati"><LogIn/></button></form>{snapshot.templates.length>0&&<button type="button" className="brief-open" onClick={()=>setGallery(true)}><Users size={13}/> SFOGLIA LE SCHEDE OPERATIVI</button>}{snapshot.game&&snapshot.game.code===searchCode?<div className="seat-select"><span>SELEZIONA IL TUO OPERATIVO</span>{snapshot.game.players.map((p)=><button disabled={p.connected} onClick={()=>join(p.id)} key={p.id} style={{'--accent':p.color} as React.CSSProperties}><i><OpIcon characterId={p.characterId} alt={p.callsign}/></i><span><small>{p.role}</small><b>{p.name}</b></span><em>{p.connected?'OCCUPATO':'ENTRA'}</em></button>)}</div>:searchCode&&<p className="join-hint">In attesa del canale <b>{searchCode}</b>…</p>}<p className="error">{error}</p>{settings&&<Settings templates={snapshot.templates} onClose={()=>setSettings(false)}/>}{gallery&&<CharacterGallery templates={snapshot.templates} onClose={()=>setGallery(false)}/>}</section></main>}
-  return <PlayerConsole game={snapshot.game!} templates={snapshot.templates} player={player} session={session} offline={offline}/>;
+  const join=async(characterId:string)=>{try{setJoining(characterId);setError('');const data=await api('/api/join',{method:'POST',body:JSON.stringify({code:snapshot.game?.code||searchCode,characterId,name:name.trim(),deviceId})});const next={code:data.game.code,playerId:data.playerId,deviceId};localStorage.setItem('roverpunk-session',JSON.stringify(next));setSession(next);setRepick(false);setViewing('');playSfx('confirm');}catch(e){playSfx('alert');setError((e as Error).message);}finally{setJoining('');}};
+  const showPicker=!session||!player||repick;
+  if(showPicker){
+    const lobby=game?.phase==='lobby';
+    const linked=!!game&&game.code===snapshot.game?.code;
+    const takenBy=(id:string)=>game?.players.find((p)=>p.characterId===id&&p.id!==session?.playerId);
+    // Toccare una riga apre la scheda completa: la selezione vera avviene solo con SELEZIONA.
+    const selectAction=(t:Template)=>{
+      const busyHere=!!takenBy(t.id)?.connected;
+      const ready=linked&&!busyHere&&lobby&&joining==='';
+      const label=!linked?'INSERISCI PRIMA IL CODICE PARTITA':busyHere?'SCHEDA OCCUPATA':!lobby?'OPERAZIONE GIÀ AVVIATA':joining===t.id?'COLLEGAMENTO…':'SELEZIONA ED ENTRA';
+      return <button type="button" className="primary-btn" data-sfx="confirm" disabled={!ready} onClick={()=>join(t.id)}>{label}{ready&&<Check size={16}/>}</button>;
+    };
+    return <main className="join-shell"><div className="rotate-notice"><RotateCw/><b>RUOTA IL DISPOSITIVO</b><span>La console operativa richiede lo schermo orizzontale.</span></div><section className="join-card">
+      <header className="join-head">
+        <div className="brand"><span className="brand-mark">R//P</span><div><b>ROVERPUNK</b><small>OPERATIVE UPLINK</small></div></div>
+        <div className="join-head-tools">
+          <span className={`uplink-icon ${linked&&!offline?'on':''}`} title={linked&&!offline?'Collegato al canale':'Non collegato'}><Smartphone/><i/><Radio/></span>
+          <SettingsButton compact onOpen={()=>setSettings(true)}/>
+        </div>
+      </header>
+      <div className="join-body">
+        <div className="join-form">
+          <small>INSERISCI CODICE PARTITA</small>
+          <form className="code-entry" onSubmit={(e)=>{e.preventDefault();find();}}><input value={code} onChange={(e)=>setCode(e.target.value.toUpperCase())} placeholder="NEON-77" maxLength={7} autoCapitalize="characters" autoCorrect="off" autoComplete="off" spellCheck={false} enterKeyHint="go" aria-label="Codice partita"/><button type="submit" aria-label="Collegati"><LogIn/></button></form>
+          {linked?<label className="join-name"><small>NOME OPERATIVO</small><input value={name} onChange={(e)=>setName(e.target.value.toUpperCase())} placeholder="COME TI CHIAMI?" maxLength={14} autoCapitalize="characters" autoCorrect="off" spellCheck={false}/></label>
+            :searchCode&&<p className="join-hint">In attesa del canale <b>{searchCode}</b>…</p>}
+          {repick&&<button type="button" className="ghost-btn" onClick={()=>setRepick(false)}>ANNULLA</button>}
+          <p className="error">{error}</p>
+        </div>
+        <div className="seat-select">
+          <span>{repick?'CAMBIA SCHEDA':'SCEGLI IL TUO PERSONAGGIO'}{linked&&!lobby&&!repick?' — OPERAZIONE GIÀ AVVIATA':''}<small>TOCCA PER APRIRE LA SCHEDA</small></span>
+          <div className="seat-list">{snapshot.templates.map((t)=>{
+            const taken=takenBy(t.id);const busyHere=!!taken&&taken.connected;const mine=linked&&player?.characterId===t.id;
+            return <button type="button" className={`${busyHere?'taken':''} ${mine?'mine':''}`} onClick={()=>setViewing(t.id)} key={t.id} style={{'--accent':t.color} as React.CSSProperties}>
+              <i><OpIcon characterId={t.id} alt={t.callsign}/></i>
+              <span><small>{t.role} · INT {t.maxHp} · DMG +{t.dmg}</small><b>{t.callsign}</b></span>
+              <em>{mine?'TUA SCHEDA':busyHere?'OCCUPATO':taken?'LIBERO':'SCHEDA'}<ChevronRight size={14}/></em>
+            </button>;
+          })}</div>
+        </div>
+      </div>
+      {settings&&<Settings templates={snapshot.templates} onClose={()=>setSettings(false)}/>}
+      {viewing&&<CharacterGallery templates={snapshot.templates} startId={viewing} onClose={()=>setViewing('')} action={selectAction} takenBy={(t)=>{const holder=takenBy(t.id);return holder?.connected?holder.name:undefined;}}/>}
+    </section></main>;
+  }
+  return <PlayerConsole game={snapshot.game!} templates={snapshot.templates} player={player!} session={session!} offline={offline} onRepick={snapshot.game!.phase==='lobby'?()=>{setName(player!.name);setRepick(true);}:undefined}/>;
 }
 
-function PlayerConsole({game,templates,player,session,offline}:{game:Game;templates:Template[];player:Player;session:{playerId:string;deviceId:string};offline:boolean}){
-  const [target,setTarget]=useState('');
+// Card azione del telefono: il primo tocco la arma e sopra compaiono ANNULLA / CONFERMA,
+// l'azione parte solo con CONFERMA (niente attivazioni per un tocco sbagliato).
+function ActionCard({id,pending,onArm,onCancel,onConfirm,disabled,className,title,label,children}:{id:string;pending:string|null;onArm:(id:string)=>void;onCancel:()=>void;onConfirm:()=>void;disabled:boolean;className?:string;title?:string;label:string;children:React.ReactNode}){
+  const armed=pending===id&&!disabled;
+  return <div className={`action-slot ${armed?'armed':''}`}>
+    <button className={className} onClick={()=>onArm(id)} disabled={disabled} title={title}>{children}</button>
+    {armed&&<div className="confirm-bar"><p>{label}?</p><button type="button" data-sfx="back" onClick={onCancel}><X/> ANNULLA</button><button type="button" className="ok" data-sfx="confirm" onClick={onConfirm}><Check/> CONFERMA</button></div>}
+  </div>;
+}
+
+function PlayerConsole({game,templates,player,session,offline,onRepick}:{game:Game;templates:Template[];player:Player;session:{playerId:string;deviceId:string};offline:boolean;onRepick?:()=>void}){
   const [sending,setSending]=useState(false);const [error,setError]=useState('');
   const [settings,setSettings]=useState(false);
   const [moving,setMoving]=useState(false);
+  // Azione armata in attesa di CONFERMA; si azzera quando passa la mano o cambia round.
+  const [pending,setPending]=useState<string|null>(null);
+  useEffect(()=>{setPending(null);},[game.activePlayerId,game.round]);
   // Stesso avviso a tutto schermo della plancia (lampeggio + sirena) quando entra una nuova minaccia.
   const spawnAlert=useSpawnAlerts(game);
   const room=roomOf(game,player.room);
@@ -514,15 +550,16 @@ function PlayerConsole({game,templates,player,session,offline}:{game:Game;templa
   const hostageHere=!game.hostage.holder&&!game.hostage.delivered&&hostageRoomOf(game)===actRoomId;
   const hostageBlocked=hostageHere&&!game.hostage.freed&&actRoomId===game.vaultRoom&&!game.vaultOpen;
   const purgeReady=actRoomId===game.vaultRoom&&game.vaultOpen&&!game.purged;
-  const selectedTarget=hostiles.some((e)=>e.id===target)?target:(hostiles[0]?.id||'');
+  const selectedTarget=hostiles[0]?.id||'';
   const selectedDoor=lockedExits.includes(doorTarget)?doorTarget:(lockedExits[0]||'');
   const targetEnemy=hostiles.find((e)=>e.id===selectedTarget);
   const openingStrike=Boolean(targetEnemy&&hasPassive(player,'clean-opening')&&!targetEnemy.locked);
   const attackDamage=openingStrike?Math.ceil(player.dmg*1.5):player.dmg;
+  const emptyMag=player.mag<=0;
+  const magFull=player.mag>=player.maxMag;
   const droneHere=hostiles.some((e)=>e.type==='DRONE');
   // RIPRISTINO cura il più ferito (in proporzione) fra gli operativi in piedi nella stanza, te compreso.
   const wounded=game.players.filter((p)=>p.hp>0&&p.room===actRoomId).sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp)[0];
-  const stage=missionStage(game);
   const turnBlocked=sending||!myTurn||acted;
   const fifthAction=game.missionId==='nucleo'
     ?{label:'PURGA',icon:<Zap/>,stat:'GRATIS · CANCELLA IL NUCLEO DATI',sub:game.purged?'Già lanciata':purgeReady?'Poi portate tutti alla consegna':actRoomId!==game.vaultRoom?`Nucleo in ${game.vaultRoom}`:'Firewall ancora attivo',disabled:turnBlocked||!purgeReady,onClick:()=>act('purge')}
@@ -533,31 +570,34 @@ function PlayerConsole({game,templates,player,session,offline}:{game:Game;templa
   const endTurn=async()=>{try{setSending(true);setError('');await api('/api/endturn',{method:'POST',body:JSON.stringify({code:game.code,playerId:player.id,deviceId:session.deviceId})});setMoving(false);}catch(e){playSfx('alert');setError((e as Error).message);}finally{setSending(false);}};
   const waiting=game.phase==='lobby';
   const abilityBlocked=waiting||!myTurn||acted||player.focus<3||sending;
+  const cardProps={pending,onArm:setPending,onCancel:()=>setPending(null)};
+  const confirm=(run:()=>Promise<void>)=>()=>{setPending(null);void run();};
   return <main className="player-shell" style={{'--accent':player.color} as React.CSSProperties}>
     <div className="rotate-notice"><RotateCw/><b>RUOTA IL DISPOSITIVO</b><span>La console operativa richiede lo schermo orizzontale.</span></div>
-    <header className="player-top"><div className="player-id"><span><OpIcon characterId={player.characterId} alt={player.callsign}/></span><div><small>{player.role} // {player.specialty}</small><b>{player.name}</b></div></div><div className="round-state"><span>ROUND <b>{String(game.round).padStart(2,'0')}</b></span><span className="pos"><MapPin size={12}/> <b>{player.room}</b> {room?.name}</span><span className="alarm">ALLARME <b>{game.alarm}%</b></span></div><div className="player-tools"><SettingsButton compact onOpen={()=>setSettings(true)}/><div className={`link-state ${offline?'offline':''}`}>{offline?<WifiOff/>:<Wifi/>}{offline?'OFFLINE':'LINK ATTIVO'}</div></div></header>
+    <header className="player-top"><div className="player-id"><span><OpIcon characterId={player.characterId} alt={player.callsign}/></span><div><small>{player.role} // {player.specialty}</small><b>{player.name}</b></div></div><div className="round-state"><span>ROUND <b>{String(game.round).padStart(2,'0')}</b></span><span className="pos"><MapPin size={12}/> <b>{player.room}</b> {room?.name}</span><span className="alarm">ALLARME <b>{game.alarm}%</b></span></div><div className="player-tools"><div className={`link-state ${offline?'offline':''}`} title={offline?'OFFLINE':'LINK ATTIVO'}>{offline?<WifiOff/>:<Wifi/>}</div><SettingsButton compact onOpen={()=>setSettings(true)}/></div></header>
     <section className="player-grid">
       <aside className="vitals">
-        <div className="vital-title"><Activity/> STATO BIOMETRICO</div><div className="big-vital"><span>INTEGRITÀ</span><b>{player.hp}<small>/{player.maxHp}</small></b><Meter value={player.hp} max={player.maxHp}/></div><div className="sub-vitals"><span><i>FOCUS</i><b>{player.focus}/{player.maxFocus}</b><Meter value={player.focus} max={player.maxFocus} tone="violet"/></span><span className="weapon-line"><i>ARMA</i><b>{player.weapon} <em>+{player.dmg}</em></b></span></div>
+        <div className="vital-title"><Activity/> STATO BIOMETRICO</div><div className="big-vital"><span>INTEGRITÀ</span><b>{player.hp}<small>/{player.maxHp}</small></b><Meter value={player.hp} max={player.maxHp}/></div><div className="sub-vitals"><span><i>FOCUS</i><b>{player.focus}/{player.maxFocus}</b><Meter value={player.focus} max={player.maxFocus} tone="violet"/></span><span><i>CARICATORE</i><b>{player.mag}/{player.maxMag}</b><Meter value={player.mag} max={player.maxMag} tone="gold"/></span><span className="weapon-line"><i>ARMA</i><b>{player.weapon} <em>+{player.dmg}</em></b></span></div>
       </aside>
-      <section className="actions"><div className="action-head"><div><small>CONSOLE AZIONI · {actedCount}/{ACTIONS_PER_TURN} AZIONI</small><b>{!myTurn?'ATTENDI IL TURNO':acted?'AZIONI FATTE':actedCount>0?`AZIONE ${actedCount}/${ACTIONS_PER_TURN} FATTA`:moved?'MANOVRA FATTA':'TOCCA A TE'}</b></div><span>{doneTurns}/{aliveCount} TURNI CHIUSI</span></div>
-        {waiting?<div className="standby"><Radio/><b>IN ATTESA DELLA PLANCIA</b><span>Il computer avvierà l’operazione quando la squadra sarà pronta.</span></div>:game.phase!=='active'?<div className="standby"><Sparkles/><b>OPERAZIONE CONCLUSA</b><span>Controlla lo schermo principale.</span></div>:player.hp<=0?<div className="standby danger"><Skull/><b>FUORI COMBATTIMENTO</b><span>Sei a terra in {player.room}. Solo un compagno nella tua stessa stanza può rianimarti.</span></div>:!myTurn?<div className="standby"><Radio/><b>TURNO DI {activeName}</b><span>Aspetta la mano: giochi il tuo turno quando tocca a te nel giro.</span></div>:<>
-          <button className={`move-btn ${moved?'armed':''}`} data-sfx="confirm" onClick={()=>setMoving(true)} disabled={sending||!openExits.length||maneuversMade>=maneuverLimit}><Footprints/><span><b>{maneuversMade>=maneuverLimit?`MANOVRE ${maneuversMade}/${maneuverLimit} FATTE → ${player.move?.roomId}`:`MANOVRA ${maneuversMade+1}/${maneuverLimit}`}</b><small>{maneuversMade>=maneuverLimit?`Manovre esaurite · ora scegli le azioni (${actedCount}/${ACTIONS_PER_TURN}) o chiudi il turno`:`${hasPassive(player,'accelerator')?'Piede sull’acceleratore attivo · ':''}${carrying?'Porti la valigetta · ':escorting?'Scorti l’informatore · ':''}${openExits.length?`Porte aperte: ${openExits.join(' · ')}`:'Nessuna porta aperta'}${lockedExits.length?` · Bloccate: ${lockedExits.join(' · ')}`:''}`}</small></span><ChevronRight/></button>
-          {hostiles.length>0?<div className="target-row"><Target/><span>BERSAGLIO IN {actRoomId}</span><select value={selectedTarget} onChange={(e)=>setTarget(e.target.value)}>{hostiles.map((e)=><option value={e.id} key={e.id}>{e.name} // HP {e.hp} · DANNO +{e.damage}</option>)}</select></div>:<div className="target-row empty"><Target/><span>NESSUN OSTILE IN {actRoomId} — il fuoco è inutile finché non li raggiungi</span></div>}
+      <section className={`actions ${myTurn?'':'off-turn'}`}><div className="action-head"><div><small>CONSOLE AZIONI · {actedCount}/{ACTIONS_PER_TURN} AZIONI</small><b>{!myTurn?'ATTENDI IL TURNO':acted?'AZIONI FATTE':actedCount>0?`AZIONE ${actedCount}/${ACTIONS_PER_TURN} FATTA`:moved?'MANOVRA FATTA':'TOCCA A TE'}</b></div><span>{doneTurns}/{aliveCount} TURNI CHIUSI</span></div>
+        {waiting?<div className="standby"><Radio/><b>IN ATTESA DELLA PLANCIA</b><span>Sei {player.callsign} // {player.role}. Il computer avvierà l’operazione quando la squadra sarà pronta.</span>{onRepick&&<button type="button" className="ghost-btn" onClick={onRepick}>CAMBIA SCHEDA</button>}</div>:game.phase!=='active'?<div className="standby"><Sparkles/><b>OPERAZIONE CONCLUSA</b><span>Controlla lo schermo principale.</span></div>:player.hp<=0?<div className="standby danger"><Skull/><b>FUORI COMBATTIMENTO</b><span>Sei a terra in {player.room}. Solo un compagno nella tua stessa stanza può rianimarti.</span></div>:<>
+          <button className={`move-btn ${moved?'armed':''}`} data-sfx="confirm" onClick={()=>{setPending(null);setMoving(true);}} disabled={sending||!myTurn||!openExits.length||maneuversMade>=maneuverLimit}><Footprints/><span><b>{maneuversMade>=maneuverLimit?`MANOVRE ${maneuversMade}/${maneuverLimit} FATTE → ${player.move?.roomId}`:`MANOVRA ${maneuversMade+1}/${maneuverLimit}`}</b><small>{maneuversMade>=maneuverLimit?`Manovre esaurite · ora scegli le azioni (${actedCount}/${ACTIONS_PER_TURN}) o chiudi il turno`:`${hasPassive(player,'accelerator')?'Piede sull’acceleratore attivo · ':''}${carrying?'Porti la valigetta · ':escorting?'Scorti l’informatore · ':''}${openExits.length?`Porte aperte: ${openExits.join(' · ')}`:'Nessuna porta aperta'}${lockedExits.length?` · Bloccate: ${lockedExits.join(' · ')}`:''}`}</small></span><ChevronRight/></button>
           <div className="action-grid">
-            <button data-sfx="confirm" onClick={()=>act('attack')} disabled={turnBlocked||!hostiles.length} title={hostiles.length?'':'Nessun ostile nella tua stanza'}><Swords/><span><b>FUOCO +{player.dmg}</b><em className="action-stat">GRATIS · {attackDamage} DANNI · {openingStrike?'APERTURA NETTA +50%':'SEMPRE A SEGNO'}</em><small>{targetEnemy?`Colpisci ${targetEnemy.name} (${targetEnemy.hp}/${targetEnemy.maxHp})${targetEnemy.hp<=attackDamage?' · LO ABBATTI':''}`:'Nessun ostile qui'}</small></span><kbd>01</kbd></button>
-            <button data-sfx="confirm" onClick={()=>act('hack')} disabled={turnBlocked||!nodeHere} title={nodeHere?'':'Nessun nodo attivo in questa stanza'}><Cpu/><span><b>INTRUSIONE</b><em className="action-stat">GRATIS · +1 NODO ({game.breach}/{game.nodesRequired}) · {HACK_DRONE_DAMAGE} DANNI A UN DRONE</em><small>{nodeHere?(droneHere?'Viola il nodo e colpisci il drone qui':'Viola il nodo di questa stanza'):'Nessun nodo attivo qui'}</small></span><kbd>02</kbd></button>
-            <button data-sfx="confirm" onClick={()=>act('heal')} disabled={turnBlocked||player.focus<HEAL_FOCUS}><HeartPulse/><span><b>{downedHere?'RIANIMAZIONE':'RIPRISTINO'}</b><em className="action-stat">{HEAL_FOCUS} FOCUS · {downedHere?`RIENTRA A ${Math.round(downedHere.maxHp*REVIVE_RATIO)} INTEGRITÀ`:`+${HEAL_AMOUNT} INTEGRITÀ`}</em><small>{player.focus<HEAL_FOCUS?`Focus insufficiente (${player.focus}/${HEAL_FOCUS})`:downedHere?`Rimette in piedi ${downedHere.name} (${Math.round(downedHere.maxHp*REVIVE_RATIO)}/${downedHere.maxHp})`:wounded?`Cura ${wounded.id===player.id?'te stesso':wounded.name} (${wounded.hp}/${wounded.maxHp})`:'Cura il più ferito nella tua stanza'}</small></span><kbd>03</kbd></button>
-            <button className="grab-action" data-sfx="confirm" onClick={fifthAction.onClick} disabled={fifthAction.disabled}>{fifthAction.icon}<span><b>{fifthAction.label}</b><em className="action-stat">{fifthAction.stat}</em><small>{fifthAction.sub}</small></span><kbd>04</kbd></button>
-            <button data-sfx="confirm" onClick={()=>act('unlock',selectedDoor)} disabled={turnBlocked||!lockedExits.length} title={lockedExits.length?'':'Nessuna porta bloccata in questa stanza'}><LockKeyhole/><span><b>SBLOCCA PORTA</b><em className="action-stat">GRATIS · APRE LA PORTA VERSO {selectedDoor||'—'}</em><small>{lockedExits.length?`Porte bloccate qui: ${lockedExits.join(' · ')}`:'Nessuna porta bloccata qui'}</small></span><kbd>05</kbd></button>
-            {lockedExits.length>1&&<div className="target-row door-row"><LockKeyhole size={14}/><span>PORTA DA SBLOCCARE</span><select value={selectedDoor} onChange={(e)=>setDoorTarget(e.target.value)}>{lockedExits.map((id)=><option value={id} key={id}>{id} // {roomOf(game,id)?.name}</option>)}</select></div>}
+            <ActionCard {...cardProps} id="attack" label={`FUOCO +${player.dmg}`} onConfirm={confirm(()=>act('attack'))} disabled={turnBlocked||!hostiles.length||emptyMag} title={emptyMag?'Caricatore vuoto':hostiles.length?'':'Nessun ostile nella tua stanza'}><Swords/><span><b>FUOCO +{player.dmg}</b><em className="action-stat">GRATIS · {attackDamage} DANNI · CARICATORE {player.mag}/{player.maxMag}</em><small>{emptyMag?'Caricatore vuoto: usa RICARICA':targetEnemy?`Colpisci ${targetEnemy.name} (${targetEnemy.hp}/${targetEnemy.maxHp})${targetEnemy.hp<=attackDamage?' · LO ABBATTI':''}`:'Nessun ostile qui'}</small></span><kbd>01</kbd></ActionCard>
+            <ActionCard {...cardProps} id="hack" label="INTRUSIONE" onConfirm={confirm(()=>act('hack'))} disabled={turnBlocked||!nodeHere||player.focus<HACK_FOCUS} title={nodeHere?'':'Nessun nodo attivo in questa stanza'}><Cpu/><span><b>INTRUSIONE</b><em className="action-stat">-{HACK_FOCUS} FOCUS · +1 NODO ({game.breach}/{game.nodesRequired}) · {HACK_DRONE_DAMAGE} DANNI A UN DRONE</em><small>{player.focus<HACK_FOCUS?`Focus insufficiente (${player.focus}/${HACK_FOCUS})`:nodeHere?(droneHere?'Viola il nodo e colpisci il drone qui':'Viola il nodo di questa stanza'):'Nessun nodo attivo qui'}</small></span><kbd>02</kbd></ActionCard>
+            <ActionCard {...cardProps} id="heal" label={downedHere?'RIANIMAZIONE':'RIPRISTINO'} onConfirm={confirm(()=>act('heal'))} disabled={turnBlocked||player.focus<HEAL_FOCUS}><HeartPulse/><span><b>{downedHere?'RIANIMAZIONE':'RIPRISTINO'}</b><em className="action-stat">-{HEAL_FOCUS} FOCUS · {downedHere?`RIENTRA A ${Math.round(downedHere.maxHp*REVIVE_RATIO)} INTEGRITÀ`:`+${HEAL_AMOUNT} INTEGRITÀ`}</em><small>{player.focus<HEAL_FOCUS?`Focus insufficiente (${player.focus}/${HEAL_FOCUS})`:downedHere?`Rimette in piedi ${downedHere.name} (${Math.round(downedHere.maxHp*REVIVE_RATIO)}/${downedHere.maxHp})`:wounded?`Cura ${wounded.id===player.id?'te stesso':wounded.name} (${wounded.hp}/${wounded.maxHp})`:'Cura il più ferito nella tua stanza'}</small></span><kbd>03</kbd></ActionCard>
+            <ActionCard {...cardProps} id="mission" label={fifthAction.label} className="grab-action" onConfirm={confirm(fifthAction.onClick)} disabled={fifthAction.disabled}>{fifthAction.icon}<span><b>{fifthAction.label}</b><em className="action-stat">{fifthAction.stat}</em><small>{fifthAction.sub}</small></span><kbd>04</kbd></ActionCard>
+            <ActionCard {...cardProps} id="unlock" label="SBLOCCA PORTA" onConfirm={confirm(()=>act('unlock',selectedDoor))} disabled={turnBlocked||!lockedExits.length||player.focus<UNLOCK_FOCUS} title={lockedExits.length?'':'Nessuna porta bloccata in questa stanza'}><LockKeyhole/><span><b>SBLOCCA PORTA</b><em className="action-stat">-{UNLOCK_FOCUS} FOCUS · APRE LA PORTA VERSO {selectedDoor||'—'}</em><small>{player.focus<UNLOCK_FOCUS?`Focus insufficiente (${player.focus}/${UNLOCK_FOCUS})`:lockedExits.length?`Porte bloccate qui: ${lockedExits.join(' · ')}`:'Nessuna porta bloccata qui'}</small></span><kbd>05</kbd></ActionCard>
+            <ActionCard {...cardProps} id="reload" label="RICARICA" onConfirm={confirm(()=>act('reload'))} disabled={turnBlocked||magFull} title={magFull?'Caricatore già pieno':''}><RefreshCw/><span><b>RICARICA</b><em className="action-stat">1 AZIONE · CARICATORE PIENO ({player.maxMag})</em><small>{magFull?'Caricatore già pieno':`Ora ${player.mag}/${player.maxMag} → torni a ${player.maxMag}`}</small></span><kbd>06</kbd></ActionCard>
+            {lockedExits.length>1&&<div className="target-row door-row"><LockKeyhole size={14}/><span>PORTA DA SBLOCCARE</span><select value={selectedDoor} onChange={(e)=>setDoorTarget(e.target.value)} disabled={!myTurn}>{lockedExits.map((id)=><option value={id} key={id}>{id} // {roomOf(game,id)?.name}</option>)}</select></div>}
+            {/* FINE TURNO: sempre l'ultima card della lista, sotto tutte le azioni. */}
+            <ActionCard {...cardProps} id="endturn" label="FINE TURNO" className="endturn-card" onConfirm={confirm(endTurn)} disabled={sending||!myTurn}><Check/><span><b>FINE TURNO{myTurn&&!moved&&!actedCount?' (SALTA)':''}</b><em className="action-stat">PASSA LA MANO AL PROSSIMO OPERATIVO</em><small>{!myTurn?`Ora è il turno di ${activeName}`:moved||actedCount?`Chiudi il turno · ${actedCount}/${ACTIONS_PER_TURN} azioni usate`:'Salti il turno senza manovra né azioni'}</small></span><ChevronRight/></ActionCard>
           </div>
-          <button className="endturn-btn" data-sfx="confirm" onClick={endTurn} disabled={sending}><Check size={15}/> FINE TURNO{!moved&&!actedCount?' (salta)':''} <ChevronRight size={15}/></button>
         </>}
       </section>
-      <aside className="loadout-panel"><div className="ability-panel"><Zap/><small>ABILITÀ ESCLUSIVA // 3 FOCUS</small><h2>{player.ability}</h2><p>{player.abilityText}</p><button disabled={abilityBlocked} data-sfx="confirm" onClick={()=>act('ability')}>ATTIVA <ChevronRight/></button></div><PassiveAbilities passives={player.passives}/><div className="personal-objective"><LockKeyhole/><div><small>{stage.label}</small><p>{stage.text}</p></div></div></aside>
+      <aside className="loadout-panel"><div className="ability-panel"><Zap/><small>ABILITÀ ESCLUSIVA // -3 FOCUS</small><h2>{player.ability}</h2><p>{player.abilityText}</p>{pending==='ability'&&!abilityBlocked?<div className="ability-confirm"><button type="button" data-sfx="back" onClick={()=>setPending(null)}><X/> ANNULLA</button><button type="button" className="ok" data-sfx="confirm" onClick={confirm(()=>act('ability'))}><Check/> CONFERMA</button></div>:<button disabled={abilityBlocked} onClick={()=>setPending('ability')}>ATTIVA <ChevronRight/></button>}</div><PassiveAbilities passives={player.passives}/></aside>
     </section>
-    <footer className="player-footer"><span>{game.code} // {game.location}</span><div className="ticker"><AlertTriangle/> {game.event.title}: {game.event.text}</div><span>{error||'CANALE CIFRATO'}</span></footer>
+    <footer className="player-footer"><span>{game.code} // {game.location}</span><div className="ticker"><Crosshair/> {game.narrative.goalHeadline}</div><span>{error||'CANALE CIFRATO'}</span></footer>
     {moving&&<div className="move-overlay"><div className="move-panel"><header><div><small>MANOVRA // DA {player.room} {room?.name}</small><b>SCEGLI LA STANZA</b></div><button className="move-close" onClick={()=>setMoving(false)}><X size={18}/></button></header>
       <BoardMap variant="mini" rooms={roomsOf(game)} pawnsIn={pawnsOf(game,player.id)} foesIn={foesOf(game)} marksIn={marksOf(game)} doors={game.doors} highlight={openExits} currentRoom={player.room} onPick={(id)=>{void act('move',id);}}/>
       <footer>{hostilesNow.length?<b className="warn"><AlertTriangle size={13}/> Sganciarti da {player.room} ti espone al fuoco di {hostilesNow[0].name}.</b>:<b><DoorOpen size={13}/> Porte aperte: {openExits.join(' · ')||'nessuna'}</b>}{lockedExits.length>0&&<b className="warn"><LockKeyhole size={13}/> Bloccate: {lockedExits.join(' · ')} — sbloccale con SBLOCCA PORTA</b>}<span>{error}</span></footer>
@@ -578,8 +618,8 @@ function DatabaseSection({templates,enemyRoster}:{templates:Template[];enemyRost
       <p className="db-note">I personaggi giocabili. Ogni operativo ha una sola abilità esclusiva (3 focus) oltre all’attacco base dell’arma.</p>
       <div className="db-grid">{templates.map((t)=><article className="db-card" style={{'--accent':t.color} as React.CSSProperties} key={t.id}>
         <div className="db-card-head"><span className="avatar"><OpIcon characterId={t.id} alt={t.callsign}/></span><div><b>{t.callsign}</b><small>{t.role} // {t.specialty}</small></div></div>
-        <div className="loadout"><span><small>INTEGRITÀ</small><b>{t.maxHp}</b></span><span><small>DANNO</small><b>+{t.dmg}</b></span><span><small>FOCUS</small><b>{t.focus}</b></span></div>
-        <div className="ability-card"><Zap size={16}/><div><small>{t.weapon} · ABILITÀ // 3 FOCUS</small><b>{t.ability}</b><p>{t.abilityText}</p></div></div>
+        <div className="loadout"><span><small>INTEGRITÀ</small><b>{t.maxHp}</b></span><span><small>DANNO</small><b>+{t.dmg}</b></span><span><small>CARICATORE</small><b>{t.mag}</b></span><span><small>FOCUS</small><b>{t.focus}</b></span></div>
+        <div className="ability-card"><Zap size={16}/><div><small>{t.weapon} · ABILITÀ // -3 FOCUS</small><b>{t.ability}</b><p>{t.abilityText}</p></div></div>
         <PassiveAbilities passives={t.passives}/>
       </article>)}</div>
     </section>
@@ -641,7 +681,7 @@ function DatabasePage(){
 
 function BoardRoot(){
   const {snapshot,setSnapshot,offline}=useSnapshot();
-  const reset=async()=>{if(!confirm('Chiudere la partita corrente e tornare al setup?'))return;await api('/api/reset',{method:'POST'});setSnapshot((s)=>({...s,game:null}));};
+  const reset=async()=>{await api('/api/reset',{method:'POST'});setSnapshot((s)=>({...s,game:null}));};
   if(!snapshot.game&&!snapshot.templates.length)return <div className="loading">INIZIALIZZAZIONE ARCHIVIO OPERATIVI...</div>;
   if(!snapshot.game)return <Setup templates={snapshot.templates} missions={snapshot.missions} enemyRoster={snapshot.enemyRoster} onCreated={(game)=>setSnapshot((s)=>({...s,game}))}/>;
   if(snapshot.game.phase==='lobby')return <Lobby game={snapshot.game} templates={snapshot.templates} networkUrl={snapshot.networkUrl} onStart={(game)=>setSnapshot((s)=>({...s,game}))} onReset={reset}/>;

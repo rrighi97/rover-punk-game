@@ -2,8 +2,8 @@
 // La mappa arriva dal server dentro lo stato della partita: qui viene solo disegnata.
 // È una plancia fissa per missione: la geometria si ricava dalle stanze stesse: ogni stanza
 // occupa una cella (quadrata) o due celle adiacenti (rettangolare, il doppio esatto).
-// I corridoi disegnati sono SOLO le porte reali: due stanze possono essere confinanti e
-// restare separate da un muro cieco, e in quel caso fra loro non compare nessuna linea.
+// Non si disegnano corridoi: il collegamento fra due stanze è la porta sul muro condiviso.
+// Due stanze possono essere confinanti e restare separate da un muro cieco, senza porta.
 
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -141,19 +141,9 @@ export default function BoardMap({
     };
   };
   return <div className={`board-map ${variant}`}>
-    <svg className="map-links" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-      {/* Due passate sullo stesso tracciato: la fascia scura è il corridoio, la linea sottile la sua guida luminosa. */}
-      {['walls', 'guide'].map((layer) => <g className={`corridor-${layer}`} key={layer}>
-        {corridors(rooms).map(({ key, a, b }) => {
-          const from = centerOf(a), to = centerOf(b);
-          const closed = Boolean(doors?.[key]);
-          return <line key={key} className={closed ? 'door-closed' : 'door-open'} x1={from.x} y1={from.y} x2={to.x} y2={to.y} vectorEffect="non-scaling-stroke" />;
-        })}
-      </g>)}
-    </svg>
     {/* PORTE COME UNITÀ: un battente disegnato sul muro condiviso di due stanze, sul perimetro,
-        verde se aperta e rosso se bloccata. Sostituisce il vecchio segnalino: la linea resta
-        solo come guida neutra del corridoio. */}
+        verde se aperta e rosso se bloccata. Nessun corridoio disegnato: il collegamento fra
+        due stanze È la porta. */}
     <div className="map-doors">
       {corridors(rooms).map(({ key, a, b }) => {
         const spot = doorSpot(boxOf(a), boxOf(b), centerOf(a), centerOf(b));

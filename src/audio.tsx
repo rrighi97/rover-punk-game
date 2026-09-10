@@ -12,11 +12,11 @@ const STORAGE_KEY='roverpunk-audio';
 type Levels = { music:number; sfx:number };
 const defaults:Levels={music:45,sfx:70};
 // La colonna sonora (file mp3, mastered) copre gli effetti sintetizzati quando si interagisce
-// (aprire pannelli, toccare comandi): a parità di slider la musica esce sempre il 30% più
-// piano di quanto indicato e gli effetti il 20% più forte (con tetto a 100%), per lasciare
+// (aprire pannelli, toccare comandi): a parità di slider la musica esce al 40% di quanto
+// indicato e gli effetti il 20% più forte (con tetto a 100%), per lasciare
 // spazio agli effetti. Lo slider mostra e salva il valore scelto; solo il volume
 // effettivamente applicato viene scalato.
-const MUSIC_RELATIVE_GAIN=0.70;
+const MUSIC_RELATIVE_GAIN=0.40;
 const SFX_RELATIVE_GAIN=1.20;
 function sfxGain(level:number){ return Math.min(1,level/100*SFX_RELATIVE_GAIN); }
 

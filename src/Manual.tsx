@@ -135,7 +135,7 @@ export const chapterList=(templates:Template[])=>[
       <ul>
         <li><b>INTEGRITÀ (HP)</b> — la tua vita, l’unica difesa. A zero vai <b>fuori combattimento</b>, ma non sei eliminato: un compagno può rianimarti.</li>
         <li><b>DANNO ARMA</b> — il numero scritto di fianco all’arma (es. <Chip>Pistola ad arco +7</Chip>). Quando spari fai <b>esattamente quel danno</b>, sempre.</li>
-        <li><b>FOCUS</b> — la risorsa delle azioni speciali. Costa <b>3</b> per l’ABILITÀ e <b>2</b> per RIPRISTINO. Recuperi <b>+1 FOCUS a fine round</b>.</li>
+        <li><b>FOCUS</b> — la risorsa delle azioni speciali. Costa <b>3</b> per l’ABILITÀ, <b>2</b> per INTRUSIONE, <b>2</b> per RIPRISTINO e <b>1</b> per SBLOCCA PORTA. Recuperi <b>+1 FOCUS a fine round</b>.</li>
       </ul>
       <div className="manual-callout"><Shield size={16}/><p>Non c’è nessuna formula: <b>il danno scritto è il danno inflitto</b>, sia il tuo sia quello dei nemici, e va <b>sempre a segno</b>. Puoi contare in anticipo quanti colpi servono — e quanti ne reggi tu.</p></div>
     </>,
@@ -199,7 +199,7 @@ export const chapterList=(templates:Template[])=>[
       <h3>Porte aperte e bloccate</h3>
       <ul>
         <li>Ogni porta è disegnata sul muro fra le due stanze: <b>verde</b> se aperta, <b>rossa</b> se bloccata. Almeno metà delle porte parte bloccata.</li>
-        <li>Una porta bloccata non si attraversa: prima va aperta con l’azione <b>SBLOCCA PORTA</b>, da una delle due stanze che collega. Consuma una delle due azioni del turno e resta aperta per il resto della partita.</li>
+        <li>Una porta bloccata non si attraversa: prima va aperta con l’azione <b>SBLOCCA PORTA</b>, da una delle due stanze che collega. Costa <b>1 FOCUS</b>, consuma una delle due azioni del turno e resta aperta per il resto della partita.</li>
         <li>Le porte fermano solo voi: <b>gli Helix passano anche da quelle bloccate</b>.</li>
       </ul>
       <h3>I segnalini della plancia</h3>
@@ -241,11 +241,11 @@ export const chapterList=(templates:Template[])=>[
       <div className="manual-actions">
         <article><span><Footprints size={19}/></span><div><b>00 · MANOVRA</b><small>Costo: gratis · non consuma le azioni del round</small><p>Ti sposti in una stanza <b>collegata da una porta</b> e poi agisci da lì. Tocca la stanza sulla mappa del telefono. Se lasci una stanza presidiata subisci il <b>60% del danno</b> dell’ostile mentre volti le spalle.</p></div></article>
         <article><span><Swords size={19}/></span><div><b>01 · FUOCO</b><small>Costo: gratis · serve un ostile nella tua stanza</small><p>Attacchi un bersaglio <b>presente dove sei tu</b>. Danno = <b>il valore della tua arma</b> (es. <Chip>+7</Chip>), fisso e sempre a segno.</p></div></article>
-        <article><span><Cpu size={19}/></span><div><b>02 · INTRUSIONE</b><small>Costo: gratis · serve un nodo nella tua stanza</small><p>Violi il nodo di <b>questa</b> stanza: <b>+1 nodo</b>. Colpisce anche un drone presente per <Chip>10</Chip>. Servono <b>2 nodi su 3</b> per aprire la teca.</p></div></article>
-        <article><span><HeartPulse size={19}/></span><div><b>03 · RIPRISTINO</b><small>Costo: 2 FOCUS · agisce solo nella tua stanza</small><p>Se c’è un compagno a terra <b>nella tua stanza</b>, lo <b>rianima</b> al 25%. Altrimenti cura il compagno più ferito <b>presente lì con te</b> di <Chip>12</Chip>. Non si cura a distanza.</p></div></article>
+        <article><span><Cpu size={19}/></span><div><b>02 · INTRUSIONE</b><small>Costo: -2 FOCUS · serve un nodo nella tua stanza</small><p>Violi il nodo di <b>questa</b> stanza: <b>+1 nodo</b>. Colpisce anche un drone presente per <Chip>10</Chip>. Servono <b>2 nodi su 3</b> per aprire la teca.</p></div></article>
+        <article><span><HeartPulse size={19}/></span><div><b>03 · RIPRISTINO</b><small>Costo: -2 FOCUS · agisce solo nella tua stanza</small><p>Se c’è un compagno a terra <b>nella tua stanza</b>, lo <b>rianima</b> al 25%. Altrimenti cura il compagno più ferito <b>presente lì con te</b> di <Chip>12</Chip>. Non si cura a distanza.</p></div></article>
         <article><span><Briefcase size={19}/></span><div><b>04 · RECUPERO / PURGA / LIBERA</b><small>Costo: gratis · cambia con la missione</small><p><b>RECUPERO</b> (missione 01) raccoglie la valigetta: nella teca <b>solo dopo</b> 2 nodi, altrove ovunque sia caduta. <b>PURGA</b> (missione 02) cancella il nucleo, dal nucleo e a firewall abbattuto. <b>LIBERA</b> (missione 03) fa uscire l’informatore dalla cella aperta, o riprende la scorta se è rimasto solo.</p></div></article>
-        <article><span><DoorOpen size={19}/></span><div><b>05 · SBLOCCA PORTA</b><small>Costo: gratis · serve una porta bloccata nella tua stanza</small><p>Apre una porta bloccata verso una stanza collegata. Se ce n’è più di una, scegli quale dal menu sotto i pulsanti. La porta resta aperta per tutti.</p></div></article>
-        <article><span><Zap size={19}/></span><div><b>ABILITÀ</b><small>Costo: 3 FOCUS</small><p>La mossa esclusiva del tuo personaggio, con la sua portata. Vedi il capitolo <b>ABILITÀ</b>.</p></div></article>
+        <article><span><DoorOpen size={19}/></span><div><b>05 · SBLOCCA PORTA</b><small>Costo: -1 FOCUS · serve una porta bloccata nella tua stanza</small><p>Apre una porta bloccata verso una stanza collegata. Se ce n’è più di una, scegli quale dal menu sotto i pulsanti. La porta resta aperta per tutti.</p></div></article>
+        <article><span><Zap size={19}/></span><div><b>ABILITÀ</b><small>Costo: -3 FOCUS</small><p>La mossa esclusiva del tuo personaggio, con la sua portata. Vedi il capitolo <b>ABILITÀ</b>.</p></div></article>
       </div>
       <h3>Scegliere il bersaglio</h3>
       <p>Il menu <b>BERSAGLIO</b> elenca solo gli ostili <b>presenti nella tua stanza</b>. Se sei in una stanza vuota il menu è spento e FUOCO è bloccato: prima devi raggiungerli.</p>

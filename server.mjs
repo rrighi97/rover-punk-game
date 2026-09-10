@@ -343,8 +343,13 @@ async function loadPersistedGame() {
   if (game && !Array.isArray(game.turnOrder)) game = null;
   // Combattimento semplificato (solo INTEGRITÀ + DANNO): le partite con corazza/scudo vanno scartate.
   if (game && game.players?.some((p) => typeof p.dmg !== 'number')) game = null;
+  // Caricatore: le partite salvate prima di questo sistema non hanno munizioni sui player.
+  if (game && game.players?.some((p) => typeof p.mag !== 'number')) game = null;
   // Due azioni per turno: le partite vecchie hanno un singolo slot `action`, non l'array.
   if (game && game.players?.some((p) => !Array.isArray(p.actions))) game = null;
+  // Scelta scheda dal telefono: le partite vecchie nascevano con la squadra già fissata dalla
+  // plancia (niente `maxPlayers` né contatore `seq` per gli id operativo) — vanno scartate.
+  if (game && (typeof game.maxPlayers !== 'number' || typeof game.seq !== 'number')) game = null;
   // Manovra gratuita per round: le partite vecchie non hanno lo slot dedicato.
   if (game) for (const p of game.players) if (p.move === undefined) p.move = null;
   // Le partite salvate prima del sistema missioni sono tutte "LA VALIGETTA".
@@ -419,14 +424,38 @@ function publicGame() {
   return {...game, players, waiting, caseAt:caseRoomNow(), hostageAt:hostageRoomNow(), vaultOpen:vaultOpen()};
 }
 
+// Scheda operativo pronta al gioco a partire da un template: usata sia alla creazione della
+// partita (percorso simulazione headless, che passa già `body.players`) sia quando un telefono
+// sceglie il personaggio dalla lobby (`/api/join`).
+function newPlayer(id, t, name, startRoom) {
+  return {id, name:String(name||t.callsign).slice(0,14).toUpperCase(), characterId:t.id, callsign:t.callsign, role:t.role, specialty:t.specialty, color:t.color, maxHp:t.maxHp, hp:t.maxHp, dmg:t.dmg, mag:t.mag, maxMag:t.mag, focus:t.focus, maxFocus:t.focus, weapon:t.weapon, ability:t.ability, abilityText:t.abilityText, passives:t.passives, room:startRoom, actions:[], move:null, maneuverCount:0, lastPlateRound:-1, turnDone:false, deviceId:null, lastSeen:0};
+}
+
+// Presidio nemico e scaling di forza: si calcolano quando la squadra è nota, cioè all'AVVIO
+// (`/api/start`), non alla creazione del canale. Il percorso simulazione, che conosce già la
+// squadra, lo chiama subito da `createGame`.
+function buildSquadEnemies(game) {
+  const mission = missionOf(game.missionId);
+  const scale = SQUAD_SCALE[game.players.length] || SQUAD_SCALE[3];
+  const tuning = missionTuning(mission);
+  game.hpScale = scale.hp * tuning.enemyHpPower;
+  game.dmgScale = scale.dmg * tuning.enemyDmgPower;
+  const layoutLike = {garrison:game.garrison, vaultRoom:game.vaultRoom, dropRoom:game.dropRoom, startRoom:game.startRoom, nodeRooms:game.nodeRooms};
+  game.enemies = buildEnemies(layoutLike, game.map, game.hpScale, game.dmgScale, game.players.length);
+}
+
 function createGame(body) {
   const mission = missionOf(body.missionId);
   // Plancia fissa della missione, clonata così com'è: nessuna generazione casuale.
   const layout = structuredClone(mission.layout);
-  const picks = body.players.slice(0,6);
-  const players = picks.map((pick,index)=>{
-    const t = templates.find((item)=>item.id===pick.characterId) || templates[index];
-    return {id:`p${index+1}`, name:String(pick.name||t.callsign).slice(0,14).toUpperCase(), characterId:t.id, callsign:t.callsign, role:t.role, specialty:t.specialty, color:t.color, maxHp:t.maxHp, hp:t.maxHp, dmg:t.dmg, focus:t.focus, maxFocus:t.focus, weapon:t.weapon, ability:t.ability, abilityText:t.abilityText, passives:t.passives, room:layout.startRoom, actions:[], move:null, maneuverCount:0, lastPlateRound:-1, turnDone:false, deviceId:null, lastSeen:0};
+  const maxPlayers = Math.max(2, Math.min(6, Number(body.maxPlayers) || 6));
+  // La plancia crea il canale VUOTO: gli operativi si aggiungono poi dai telefoni scegliendo la
+  // scheda. Il percorso simulazione headless passa invece `body.players` con le schede già fissate.
+  const picks = Array.isArray(body.players) ? body.players.slice(0,6) : [];
+  let seq = 0;
+  const players = picks.map((pick)=>{
+    const t = templates.find((item)=>item.id===pick.characterId) || templates[seq];
+    return newPlayer(`p${++seq}`, t, pick.name, layout.startRoom);
   });
   const scale=SQUAD_SCALE[players.length]||SQUAD_SCALE[3];
   const tuning=missionTuning(mission);
@@ -435,18 +464,22 @@ function createGame(body) {
   const roomName=(id)=>{const r=layout.rooms.find((x)=>x.id===id);return `${id} // ${r?.name||''}`;};
   const narrative={goalHeadline:mission.goalHeadline, ...mission.narrative(layout,roomName)};
   return {
-    code:makeCode(), phase:'lobby', round:1, alarm:tuning.alarmStart, breach:0, alarmSpawns:[], hpScale, dmgScale,
+    code:makeCode(), phase:'lobby', round:1, alarm:tuning.alarmStart, breach:0, alarmSpawns:[],
+    hpScale:players.length?hpScale:1, dmgScale:players.length?dmgScale:1, maxPlayers, seq,
     turnOrder:players.map((p)=>p.id), activePlayerId:players[0]?.id||null,
     missionId:mission.id, title:mission.title, location:`HELIX TOWER // SETTORE ${['NORD','SUD','EST','OVEST'][Math.floor(Math.random()*4)]}`,
     objective:narrative.objective, narrative,
     map:layout.rooms, startRoom:layout.startRoom, vaultRoom:layout.vaultRoom, dropRoom:layout.dropRoom,
+    garrison:layout.garrison||null,
     nodeRooms:layout.nodeRooms, nodesRequired:NODES_REQUIRED, doors:layout.doors||{},
     nodes:Object.fromEntries(layout.nodeRooms.map((id)=>[id,false])),
     caseRoom:layout.vaultRoom, caseHolder:null, caseDelivered:false, purged:false, lockdown:false,
     hostage:{room:layout.vaultRoom, holder:null, hp:HOSTAGE_MAX_HP, maxHp:HOSTAGE_MAX_HP, freed:false, delivered:false},
     players,
-    enemies:buildEnemies(layout,layout.rooms,hpScale,dmgScale,players.length),
-    feed:[{time:nowTime(),tone:'system',text:`Canale clandestino aperto. Squadra in posizione a ${roomName(layout.startRoom)}.`}],
+    enemies:players.length?buildEnemies(layout,layout.rooms,hpScale,dmgScale,players.length):[],
+    feed:[{time:nowTime(),tone:'system',text:players.length
+      ?`Canale clandestino aperto. Squadra in posizione a ${roomName(layout.startRoom)}.`
+      :`Canale clandestino aperto. In attesa degli operativi — ingresso da ${roomName(layout.startRoom)}.`}],
     event:{title:'FINESTRA OPERATIVA',text:'Il blackout copre l’infiltrazione, ma l’obiettivo è ancora sigillato: servono i nodi.'},
     createdAt:Date.now(),updatedAt:Date.now(),
   };
@@ -526,7 +559,8 @@ function applyAction(p,action){
     const target=hostiles.find((e)=>e.id===action.targetId)||hostiles[0];
 
     if(action.type==='attack'){
-      if(!target) log(`${p.name} non ha bersagli in ${p.room}: tiene la posizione.`,'system');
+      if(p.mag<=0) log(`${p.name} preme il grilletto a vuoto in ${p.room}: caricatore scarico.`,'system');
+      else if(!target) log(`${p.name} non ha bersagli in ${p.room}: tiene la posizione.`,'system');
       else{
         const opening=hasPassive(p,'clean-opening')&&!target.locked;
         const damage=opening?Math.ceil(p.dmg*1.5):p.dmg;
@@ -536,6 +570,16 @@ function applyAction(p,action){
           log(`${p.name} trova un'apertura su ${target.name}: +50% danni.`,'combat');
         }
         damageEnemy(target,damage,p.name);
+        p.mag=Math.max(0,p.mag-1);
+        if(p.mag===0) log(`${p.name}: caricatore vuoto, serve RICARICA.`,'system');
+      }
+    }
+
+    if(action.type==='reload'){
+      if(p.mag>=p.maxMag) log(`${p.name}: caricatore già pieno.`,'system');
+      else{
+        p.mag=p.maxMag;
+        log(`${p.name} ricarica ${p.weapon}: caricatore pieno (${p.maxMag}).`,'system');
       }
     }
 
@@ -583,6 +627,7 @@ function applyAction(p,action){
       if(!doorRoom||!room.links.includes(doorRoom)) log(`${p.name}: nessuna porta verso ${doorRoom||'?'} da ${p.room}.`,'system');
       else if(!doorClosed(p.room,doorRoom)) log(`${p.name}: la porta verso ${roomLabel(doorRoom)} è già aperta.`,'system');
       else{
+        p.focus=Math.max(0,p.focus-1);
         game.doors[doorKey(p.room,doorRoom)]=false;
         log(`${p.name} sblocca la porta fra ${roomLabel(p.room)} e ${roomLabel(doorRoom)}.`,'hack');
       }
@@ -592,6 +637,7 @@ function applyAction(p,action){
       if(!room.node) log(`${p.name} non trova terminali in ${roomLabel(p.room)}.`,'system');
       else if(game.nodes[p.room]) log(`${p.name}: il nodo di ${p.room} è già violato.`,'system');
       else {
+        p.focus=Math.max(0,p.focus-2);
         breachNode(p.room,p.name);
         const drone=hostiles.find((e)=>e.type==='DRONE');
         if(drone) damageEnemy(drone,HACK_DRONE_DAMAGE,p.name);
@@ -889,19 +935,47 @@ async function api(req,res,url){
     }
     if(req.method==='POST'&&url.pathname==='/api/setup'){
       const body=await jsonBody(req);
-      if(!Array.isArray(body.players)||body.players.length<2||body.players.length>6)return send(res,400,{error:'Servono da 2 a 6 giocatori.'});
-      if(body.players.some((p)=>!p.characterId||!templates.some((t)=>t.id===p.characterId)))return send(res,400,{error:'Assegna una scheda a ogni operativo.'});
-      if(new Set(body.players.map((p)=>p.characterId)).size!==body.players.length)return send(res,400,{error:'Ogni personaggio deve essere unico.'});
-      game=createGame(body);await save();return send(res,200,{game:publicGame(),networkUrl:getNetworkUrl()});
+      if(!missionList().some((m)=>m.id===body.missionId))return send(res,400,{error:'Missione non valida.'});
+      // La plancia crea il canale VUOTO: sceglie missione e tetto di posti (2–6). Gli operativi
+      // entrano poi dai telefoni scegliendo la scheda in `/api/join`.
+      game=createGame({missionId:body.missionId,maxPlayers:body.maxPlayers});await save();
+      return send(res,200,{game:publicGame(),networkUrl:getNetworkUrl()});
     }
     if(req.method==='POST'&&url.pathname==='/api/join'){
       const body=await jsonBody(req);if(!game||body.code?.toUpperCase()!==game.code)return send(res,404,{error:'Codice partita non valido.'});
-      const p=game.players.find((x)=>x.id===body.playerId);if(!p)return send(res,404,{error:'Operativo non trovato.'});
-      if(p.deviceId&&p.deviceId!==body.deviceId&&connected(p))return send(res,409,{error:'Questo operativo è già collegato da un altro telefono.'});
-      const returning=p.deviceId===body.deviceId;
-      p.deviceId=body.deviceId;p.lastSeen=Date.now();
-      if(!returning) log(`${p.name} collegato al canale.`,'success');
-      await save();return send(res,200,{game:publicGame()});
+      const template=templates.find((t)=>t.id===body.characterId);if(!template)return send(res,400,{error:'Scheda operativo non valida.'});
+      const mine=game.players.find((x)=>x.deviceId===body.deviceId);
+      const holder=game.players.find((x)=>x.characterId===body.characterId);
+      // Fuori dalla lobby si può solo riconnettersi al proprio posto (o riprendere una scheda
+      // lasciata libera da un telefono caduto): niente nuovi posti né cambio scheda a partita in corso.
+      if(game.phase!=='lobby'){
+        const seat=mine||(holder&&!connected(holder)?holder:null);
+        if(!seat)return send(res,409,{error:'Operazione già avviata: impossibile aggiungere operativi.'});
+        seat.deviceId=body.deviceId;seat.lastSeen=Date.now();
+        await save();return send(res,200,{game:publicGame(),playerId:seat.id});
+      }
+      // Scheda già presa da un altro telefono ancora collegato: no. Se il telefono che la teneva
+      // è caduto, il posto si può riprendere (lo si rimuove e se ne crea uno nuovo pulito).
+      if(holder&&holder!==mine){
+        if(connected(holder))return send(res,409,{error:'Scheda già scelta da un altro operativo.'});
+        game.players=game.players.filter((x)=>x!==holder);
+      }
+      let seat;
+      if(mine){
+        // Il telefono aveva già un posto: aggiorna nome e scheda sul posto esistente (stesso id).
+        seat=newPlayer(mine.id,template,body.name,game.startRoom);
+        seat.deviceId=body.deviceId;seat.lastSeen=Date.now();
+        game.players=game.players.map((x)=>x.id===mine.id?seat:x);
+      }else{
+        if(game.players.length>=(game.maxPlayers||6))return send(res,409,{error:'Squadra al completo.'});
+        seat=newPlayer(`p${++game.seq}`,template,body.name,game.startRoom);
+        seat.deviceId=body.deviceId;seat.lastSeen=Date.now();
+        game.players.push(seat);
+      }
+      game.turnOrder=game.players.map((x)=>x.id);
+      if(!game.players.some((x)=>x.id===game.activePlayerId))game.activePlayerId=game.players[0]?.id||null;
+      log(`${seat.name} entra come ${seat.role}.`,'success');
+      await save();return send(res,200,{game:publicGame(),playerId:seat.id});
     }
     if(req.method==='POST'&&url.pathname==='/api/ping'){
       const body=await jsonBody(req);const p=game?.players.find((x)=>x.id===body.playerId&&x.deviceId===body.deviceId);
@@ -912,7 +986,10 @@ async function api(req,res,url){
     if(req.method==='POST'&&url.pathname==='/api/start'){
       const body=await jsonBody(req);if(!game||body.code!==game.code)return send(res,404,{error:'Partita non trovata.'});
       if(game.phase!=='lobby')return send(res,409,{error:'Operazione già avviata.'});
-      // Si può avviare anche senza tutti i telefoni (o senza nessuno) per ispezionare plancia/mappa:
+      if(game.players.length<2)return send(res,400,{error:'Servono almeno 2 operativi collegati.'});
+      // Squadra ora nota: presidio nemico e scaling di forza si calcolano adesso.
+      if(!game.enemies?.length)buildSquadEnemies(game);
+      // Si può avviare anche senza tutti i telefoni collegati per ispezionare plancia/mappa:
       // il turno resta fermo sull'operativo di mano finché il suo telefono non gioca (o la plancia salta).
       game.phase='active';
       game.turnOrder=game.players.map((p)=>p.id);
@@ -924,7 +1001,7 @@ async function api(req,res,url){
       const body=await jsonBody(req);if(!game||body.code!==game.code||game.phase!=='active')return send(res,409,{error:'Operazione non attiva.'});
       const p=game.players.find((x)=>x.id===body.playerId&&x.deviceId===body.deviceId);if(!p||!alive(p))return send(res,403,{error:'Accesso operativo negato.'});
       if(game.activePlayerId!==p.id)return send(res,409,{error:'Non è il tuo turno.'});
-      const allowed=['move','attack','hack','heal','ability','grab','purge','free','unlock'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
+      const allowed=['move','attack','hack','heal','ability','grab','purge','free','unlock','reload'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
       // MANOVRA: di norma una per turno; Piede sull'acceleratore ne abilita due.
       // Si risolve subito: l'operativo si sposta davvero e gli ostili della stanza lo seguono.
       if(body.type==='move'){
@@ -941,7 +1018,11 @@ async function api(req,res,url){
       const actRoom=p.room;
       if(body.type==='ability'&&p.focus<3)return send(res,400,{error:'Focus insufficiente.'});
       if(body.type==='heal'&&p.focus<2)return send(res,400,{error:'Focus insufficiente.'});
+      if(body.type==='hack'&&p.focus<2)return send(res,400,{error:'Focus insufficiente.'});
+      if(body.type==='unlock'&&p.focus<1)return send(res,400,{error:'Focus insufficiente.'});
       if(body.type==='attack'&&!enemiesIn(actRoom).length)return send(res,400,{error:'Nessun ostile nella tua stanza.'});
+      if(body.type==='attack'&&p.mag<=0)return send(res,400,{error:'Caricatore vuoto: usa RICARICA.'});
+      if(body.type==='reload'&&p.mag>=p.maxMag)return send(res,400,{error:'Caricatore già pieno.'});
       if(body.type==='hack'&&!roomById(actRoom).node)return send(res,400,{error:'Nessun terminale in questa stanza.'});
       if(body.type==='hack'&&game.nodes[actRoom])return send(res,400,{error:'Il nodo di questa stanza è già violato.'});
       if(body.type==='grab'&&(game.missionId!=='valigetta'||game.caseDelivered))return send(res,400,{error:'Azione non disponibile in questa missione.'});
