@@ -26,7 +26,7 @@ export const templates = [
     {id:'clean-opening',name:'Apertura netta',text:'Il primo attacco contro un ostile non ingaggiato infligge +50% danni.'},
   ] },
   { id:'driver', callsign:'JAX', role:'DRIVER', specialty:'Droni e mobilità', color:'#ff8b4a', maxHp:105, dmg:10, mag:20, focus:6, weapon:'Vector SMG', ability:'Sciame MANTA', abilityText:'Colpisce due ostili nella tua stanza o in una collegata (18 danni ciascuno).', passives:[
-    {id:'accelerator',name:'Piede sull’acceleratore',text:'Puoi fare 2 manovre nel turno, se entrambe le porte sono aperte.'},
+    {id:'accelerator',name:'Piede sull’acceleratore',text:'La prima manovra del turno non consuma azioni.'},
     {id:'clean-opening',name:'Apertura netta',text:'Il primo attacco contro un ostile non ingaggiato infligge +50% danni.'},
   ] },
 ];

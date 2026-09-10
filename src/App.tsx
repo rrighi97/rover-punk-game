@@ -30,7 +30,7 @@ type Game ={ code:string; phase:'lobby'|'active'|'victory'|'defeat'; maxPlayers:
 type Snapshot = { game:Game|null; templates:Template[]; enemyRoster:EnemyRosterEntry[]; missions:MissionMeta[]; networkUrl:string; networkUrls?:string[] };
 
 const emptySnapshot:Snapshot={game:null,templates:[],enemyRoster:[],missions:[],networkUrl:''};
-const ACTIONS_PER_TURN=2; // azioni (non manovra) giocabili in un turno — deve restare allineato a server.mjs
+const ACTIONS_PER_TURN=3; // azioni giocabili in un turno, la manovra ne consuma una — deve restare allineato a server.mjs
 // Valori delle azioni base mostrati sui pulsanti del telefono — allineati a server.mjs.
 const HEAL_FOCUS=2, HEAL_AMOUNT=12, REVIVE_RATIO=0.25, HACK_DRONE_DAMAGE=10;
 const HACK_FOCUS=2, UNLOCK_FOCUS=1;
@@ -525,14 +525,16 @@ function PlayerConsole({game,templates,player,session,offline,onRepick}:{game:Ga
   const openExits=exits.filter((id)=>!doorClosed(game,player.room,id));
   const lockedExits=exits.filter((id)=>doorClosed(game,player.room,id));
   const [doorTarget,setDoorTarget]=useState('');
-  // Sistema a turni: la manovra si risolve subito e Piede sull'acceleratore può eseguirne due.
+  // Sistema a turni: 3 azioni per turno, la manovra (una stanza alla volta) ne consuma una e si
+  // risolve subito. Piede sull'acceleratore rende gratis la prima manovra del turno.
   const myTurn=game.phase==='active'&&game.activePlayerId===player.id&&player.hp>0;
   const activeName=game.players.find((p)=>p.id===game.activePlayerId)?.name||'—';
-  const maneuverLimit=hasPassive(player,'accelerator')?2:1;
   const maneuversMade=player.maneuverCount??(player.move?1:0);
   const moved=maneuversMade>0;
   const actedCount=player.actions.length;
   const acted=actedCount>=ACTIONS_PER_TURN;
+  const freeMoveLeft=hasPassive(player,'accelerator')&&maneuversMade<1;
+  const canMove=freeMoveLeft||!acted;
   const doneTurns=game.players.filter((p)=>p.hp>0&&p.turnDone).length;
   const aliveCount=game.players.filter((p)=>p.hp>0).length;
   const actRoomId=player.room;
@@ -579,9 +581,9 @@ function PlayerConsole({game,templates,player,session,offline,onRepick}:{game:Ga
       <aside className="vitals">
         <div className="vital-title"><Activity/> STATO BIOMETRICO</div><div className="big-vital"><span>INTEGRITÀ</span><b>{player.hp}<small>/{player.maxHp}</small></b><Meter value={player.hp} max={player.maxHp}/></div><div className="sub-vitals"><span><i>FOCUS</i><b>{player.focus}/{player.maxFocus}</b><Meter value={player.focus} max={player.maxFocus} tone="violet"/></span><span><i>CARICATORE</i><b>{player.mag}/{player.maxMag}</b><Meter value={player.mag} max={player.maxMag} tone="gold"/></span><span className="weapon-line"><i>ARMA</i><b>{player.weapon} <em>+{player.dmg}</em></b></span></div>
       </aside>
-      <section className={`actions ${myTurn?'':'off-turn'}`}><div className="action-head"><div><small>CONSOLE AZIONI · {actedCount}/{ACTIONS_PER_TURN} AZIONI</small><b>{!myTurn?'ATTENDI IL TURNO':acted?'AZIONI FATTE':actedCount>0?`AZIONE ${actedCount}/${ACTIONS_PER_TURN} FATTA`:moved?'MANOVRA FATTA':'TOCCA A TE'}</b></div><span>{doneTurns}/{aliveCount} TURNI CHIUSI</span></div>
+      <section className={`actions ${myTurn?'':'off-turn'}`}><div className="action-head"><div><small>CONSOLE AZIONI · {actedCount}/{ACTIONS_PER_TURN} AZIONI</small><b>{!myTurn?'ATTENDI IL TURNO':acted?'AZIONI FATTE':actedCount>0?`${actedCount}/${ACTIONS_PER_TURN} AZIONI USATE`:moved?'MANOVRA FATTA':'TOCCA A TE'}</b></div><span>{doneTurns}/{aliveCount} TURNI CHIUSI</span></div>
         {waiting?<div className="standby"><Radio/><b>IN ATTESA DELLA PLANCIA</b><span>Sei {player.callsign} // {player.role}. Il computer avvierà l’operazione quando la squadra sarà pronta.</span>{onRepick&&<button type="button" className="ghost-btn" onClick={onRepick}>CAMBIA SCHEDA</button>}</div>:game.phase!=='active'?<div className="standby"><Sparkles/><b>OPERAZIONE CONCLUSA</b><span>Controlla lo schermo principale.</span></div>:player.hp<=0?<div className="standby danger"><Skull/><b>FUORI COMBATTIMENTO</b><span>Sei a terra in {player.room}. Solo un compagno nella tua stessa stanza può rianimarti.</span></div>:<>
-          <button className={`move-btn ${moved?'armed':''}`} data-sfx="confirm" onClick={()=>{setPending(null);setMoving(true);}} disabled={sending||!myTurn||!openExits.length||maneuversMade>=maneuverLimit}><Footprints/><span><b>{maneuversMade>=maneuverLimit?`MANOVRE ${maneuversMade}/${maneuverLimit} FATTE → ${player.move?.roomId}`:`MANOVRA ${maneuversMade+1}/${maneuverLimit}`}</b><small>{maneuversMade>=maneuverLimit?`Manovre esaurite · ora scegli le azioni (${actedCount}/${ACTIONS_PER_TURN}) o chiudi il turno`:`${hasPassive(player,'accelerator')?'Piede sull’acceleratore attivo · ':''}${carrying?'Porti la valigetta · ':escorting?'Scorti l’informatore · ':''}${openExits.length?`Porte aperte: ${openExits.join(' · ')}`:'Nessuna porta aperta'}${lockedExits.length?` · Bloccate: ${lockedExits.join(' · ')}`:''}`}</small></span><ChevronRight/></button>
+          <button className={`move-btn ${moved?'armed':''}`} data-sfx="confirm" onClick={()=>{setPending(null);setMoving(true);}} disabled={sending||!myTurn||!openExits.length||!canMove}><Footprints/><span><b>{!canMove?'AZIONI ESAURITE':freeMoveLeft?'MANOVRA · GRATIS':`MANOVRA · 1 AZIONE (${actedCount}/${ACTIONS_PER_TURN})`}</b><small>{!canMove?`Hai usato le ${ACTIONS_PER_TURN} azioni · chiudi il turno`:`${freeMoveLeft?'Piede sull’acceleratore: non consuma azioni · ':moved?`${maneuversMade} ${maneuversMade===1?'manovra fatta':'manovre fatte'} · `:''}${carrying?'Porti la valigetta · ':escorting?'Scorti l’informatore · ':''}${openExits.length?`Porte aperte: ${openExits.join(' · ')}`:'Nessuna porta aperta'}${lockedExits.length?` · Bloccate: ${lockedExits.join(' · ')}`:''}`}</small></span><ChevronRight/></button>
           <div className="action-grid">
             <ActionCard {...cardProps} id="attack" label={`FUOCO +${player.dmg}`} onConfirm={confirm(()=>act('attack'))} disabled={turnBlocked||!hostiles.length||emptyMag} title={emptyMag?'Caricatore vuoto':hostiles.length?'':'Nessun ostile nella tua stanza'}><Swords/><span><b>FUOCO +{player.dmg}</b><em className="action-stat">GRATIS · {attackDamage} DANNI · CARICATORE {player.mag}/{player.maxMag}</em><small>{emptyMag?'Caricatore vuoto: usa RICARICA':targetEnemy?`Colpisci ${targetEnemy.name} (${targetEnemy.hp}/${targetEnemy.maxHp})${targetEnemy.hp<=attackDamage?' · LO ABBATTI':''}`:'Nessun ostile qui'}</small></span><kbd>01</kbd></ActionCard>
             <ActionCard {...cardProps} id="hack" label="INTRUSIONE" onConfirm={confirm(()=>act('hack'))} disabled={turnBlocked||!nodeHere||player.focus<HACK_FOCUS} title={nodeHere?'':'Nessun nodo attivo in questa stanza'}><Cpu/><span><b>INTRUSIONE</b><em className="action-stat">-{HACK_FOCUS} FOCUS · +1 NODO ({game.breach}/{game.nodesRequired}) · {HACK_DRONE_DAMAGE} DANNI A UN DRONE</em><small>{player.focus<HACK_FOCUS?`Focus insufficiente (${player.focus}/${HACK_FOCUS})`:nodeHere?(droneHere?'Viola il nodo e colpisci il drone qui':'Viola il nodo di questa stanza'):'Nessun nodo attivo qui'}</small></span><kbd>02</kbd></ActionCard>
@@ -591,7 +593,7 @@ function PlayerConsole({game,templates,player,session,offline,onRepick}:{game:Ga
             <ActionCard {...cardProps} id="reload" label="RICARICA" onConfirm={confirm(()=>act('reload'))} disabled={turnBlocked||magFull} title={magFull?'Caricatore già pieno':''}><RefreshCw/><span><b>RICARICA</b><em className="action-stat">1 AZIONE · CARICATORE PIENO ({player.maxMag})</em><small>{magFull?'Caricatore già pieno':`Ora ${player.mag}/${player.maxMag} → torni a ${player.maxMag}`}</small></span><kbd>06</kbd></ActionCard>
             {lockedExits.length>1&&<div className="target-row door-row"><LockKeyhole size={14}/><span>PORTA DA SBLOCCARE</span><select value={selectedDoor} onChange={(e)=>setDoorTarget(e.target.value)} disabled={!myTurn}>{lockedExits.map((id)=><option value={id} key={id}>{id} // {roomOf(game,id)?.name}</option>)}</select></div>}
             {/* FINE TURNO: sempre l'ultima card della lista, sotto tutte le azioni. */}
-            <ActionCard {...cardProps} id="endturn" label="FINE TURNO" className="endturn-card" onConfirm={confirm(endTurn)} disabled={sending||!myTurn}><Check/><span><b>FINE TURNO{myTurn&&!moved&&!actedCount?' (SALTA)':''}</b><em className="action-stat">PASSA LA MANO AL PROSSIMO OPERATIVO</em><small>{!myTurn?`Ora è il turno di ${activeName}`:moved||actedCount?`Chiudi il turno · ${actedCount}/${ACTIONS_PER_TURN} azioni usate`:'Salti il turno senza manovra né azioni'}</small></span><ChevronRight/></ActionCard>
+            <ActionCard {...cardProps} id="endturn" label="FINE TURNO" className="endturn-card" onConfirm={confirm(endTurn)} disabled={sending||!myTurn}><Check/><span><b>FINE TURNO{myTurn&&!moved&&!actedCount?' (SALTA)':''}</b><em className="action-stat">PASSA LA MANO AL PROSSIMO OPERATIVO</em><small>{!myTurn?`Ora è il turno di ${activeName}`:moved||actedCount?`Chiudi il turno · ${actedCount}/${ACTIONS_PER_TURN} azioni usate`:'Salti il turno senza usare azioni'}</small></span><ChevronRight/></ActionCard>
           </div>
         </>}
       </section>

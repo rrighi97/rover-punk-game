@@ -32,7 +32,7 @@ const LOCKDOWN_ALARM = 80;         // oltre questa soglia la torre allerta ogni 
 const ENEMY_ROAM_ALARM = 85;      // sotto questa soglia gli ostili non si spostano a fine round: restano di presidio e colpiscono solo a fine turno
 const ALARM_SPAWN_THRESHOLDS = [25, 35, 45, 55, 65, 75]; // a ogni soglia una nuova unità entra in una stanza a caso e parte a caccia
 const NODES_REQUIRED = 2;          // nodi da violare per sbloccare la teca
-const ACTIONS_PER_TURN = 2;        // azioni (non manovra) giocabili in un turno
+const ACTIONS_PER_TURN = 3;        // azioni giocabili in un turno: ogni manovra ne consuma una
 const REVIVE_RATIO = 0.25;
 const HEAL_AMOUNT = 12;            // RIPRISTINO sul compagno più ferito — allineato a src/App.tsx
 const HACK_DRONE_DAMAGE = 10;      // INTRUSIONE colpisce anche un drone nella stanza — allineato a src/App.tsx
@@ -1002,19 +1002,21 @@ async function api(req,res,url){
       const p=game.players.find((x)=>x.id===body.playerId&&x.deviceId===body.deviceId);if(!p||!alive(p))return send(res,403,{error:'Accesso operativo negato.'});
       if(game.activePlayerId!==p.id)return send(res,409,{error:'Non è il tuo turno.'});
       const allowed=['move','attack','hack','heal','ability','grab','purge','free','unlock','reload'];if(!allowed.includes(body.type))return send(res,400,{error:'Azione non valida.'});
-      // MANOVRA: di norma una per turno; Piede sull'acceleratore ne abilita due.
+      // MANOVRA: una stanza alla volta e consuma una delle ACTIONS_PER_TURN azioni, quindi si può
+      // ripetere e alternare con le altre azioni. Piede sull'acceleratore rende gratis la prima del turno.
       // Si risolve subito: l'operativo si sposta davvero e gli ostili della stanza lo seguono.
       if(body.type==='move'){
-        const maneuverLimit=hasPassive(p,'accelerator')?2:1;
-        if((p.maneuverCount||0)>=maneuverLimit)return send(res,409,{error:`Hai già eseguito le ${maneuverLimit} manovre di questo turno.`});
+        const freeMove=hasPassive(p,'accelerator')&&(p.maneuverCount||0)<1;
+        if(!freeMove&&p.actions.length>=ACTIONS_PER_TURN)return send(res,409,{error:`Hai già usato le ${ACTIONS_PER_TURN} azioni di questo turno.`});
         if(!roomById(p.room).links.includes(body.roomId))return send(res,400,{error:'Nessuna porta collega la tua stanza a quella.'});
         if(doorClosed(p.room,body.roomId))return send(res,400,{error:'Quella porta è bloccata: sbloccala prima di passare.'});
         p.move={roomId:body.roomId};p.maneuverCount=(p.maneuverCount||0)+1;p.lastSeen=Date.now();
+        if(!freeMove)p.actions.push({type:'move',targetId:null,roomId:body.roomId});
         applyMove(p);
         await save();return send(res,200,{game:publicGame()});
       }
       if(p.actions.length>=ACTIONS_PER_TURN)return send(res,409,{error:`Hai già usato le ${ACTIONS_PER_TURN} azioni di questo turno.`});
-      // La manovra, se fatta, è già stata risolta: l'azione ha effetto nella stanza attuale.
+      // Le manovre fatte sono già risolte: l'azione ha effetto nella stanza attuale.
       const actRoom=p.room;
       if(body.type==='ability'&&p.focus<3)return send(res,400,{error:'Focus insufficiente.'});
       if(body.type==='heal'&&p.focus<2)return send(res,400,{error:'Focus insufficiente.'});

@@ -35,7 +35,7 @@ const OVERRIDE = {};
 for (const k of ['enemyPower', 'enemyHpPower', 'enemyDmgPower', 'alarmStart']) {
   if (args[k] !== undefined) OVERRIDE[k] = Number(args[k]);
 }
-const ACTIONS_PER_TURN = 2; // costante di base del motore (server.mjs)
+const ACTIONS_PER_TURN = 3; // costante di base del motore (server.mjs): la manovra ne consuma una
 
 // ---------- PRNG con seed (mulberry32) ----------
 function mulberry32(seed) {
@@ -153,19 +153,22 @@ function botTurn(g, p) {
   if (!alive(p)) return;
   let actionsLeft = ACTIONS_PER_TURN;
   const goal = holderShouldWait(g, p) ? p.room : playerGoalRoom(g, p);
+  // manovra verso l'obiettivo: consuma un'azione, tranne la prima con Piede sull'acceleratore
+  const stepToGoal = () => {
+    const n = pathNext(g, p.room, goal);
+    if (!n || doorClosed(g, p.room, n)) return false;
+    const free = hasPassive(p, 'accelerator') && (p.maneuverCount || 0) < 1;
+    if (!free && actionsLeft <= 0) return false;
+    p.move = { roomId: n }; p.maneuverCount = (p.maneuverCount || 0) + 1; applyMove(p);
+    if (!free) actionsLeft--;
+    return true;
+  };
   const next = pathNext(g, p.room, goal);
   if (next) {
     if (doorClosed(g, p.room, next) && actionsLeft > 0) { applyAction(p, { type: 'unlock', roomId: next }); actionsLeft--; }
-    const maneuverLimit = hasPassive(p, 'accelerator') ? 2 : 1;
-    if (!doorClosed(g, p.room, next) && (p.maneuverCount || 0) < maneuverLimit) {
-      p.move = { roomId: next }; p.maneuverCount = (p.maneuverCount || 0) + 1; applyMove(p);
-      if (hasPassive(p, 'accelerator')) {
-        const n2 = pathNext(g, p.room, goal);
-        if (n2 && !doorClosed(g, p.room, n2)) { p.move = { roomId: n2 }; p.maneuverCount++; applyMove(p); }
-      }
-    }
+    if (stepToGoal() && hasPassive(p, 'accelerator')) stepToGoal();
   }
-  for (let guard = 0; guard < ACTIONS_PER_TURN && actionsLeft > 0; guard++) {
+  for (let guard = 0; guard < ACTIONS_PER_TURN * 2 && actionsLeft > 0; guard++) {
     const room = roomById(g, p.room);
     const hostiles = enemiesIn(g, p.room);
     const downHere = g.players.some((x) => x.hp <= 0 && x.room === p.room);
@@ -203,6 +206,8 @@ function botTurn(g, p) {
     // Ultima scelta a stanza sgombra: rabbocca il caricatore invece di sprecare l'azione (un umano
     // ricarica nelle pause, mai sotto il fuoco).
     if (!hostiles.length && p.mag < p.maxMag) { applyAction(p, { type: 'reload' }); actionsLeft--; continue; }
+    // niente da fare qui: le azioni avanzate diventano altre manovre verso l'obiettivo
+    if (!hostiles.length && stepToGoal()) continue;
     break;
   }
 }
