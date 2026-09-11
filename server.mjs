@@ -173,10 +173,13 @@ const MISSIONS = {
       'Portate ogni operativo ancora vivo nel punto di consegna per chiudere l’estrazione.',
     ],
     mapNote: mapNote('la teca', 12),
-    // PRIMA TARATURA (simulatore bot, N=140/cella): winrate aggregato 2-6 ~62%. Da rivedere coi
-    // playtest umani e in seconda passata (le sconfitte da allarme col bot sono gonfiate, il bot
-    // gioca lento). Vedi `missionTuning` e `npm run sim`.
-    tuning: { enemyPower: 0.85 },
+    // TARATURA (simulatore bot, N=400/cella): enemyPower 0.93 + alarmStart 17 (era 20) per
+    // portare winrate aggregato 2-6 e sconfitte-allarme dentro le fasce target del progetto
+    // (52-72% win, 4-18% sconfitte-allarme): risultato 71% win, 19% sconfitte-allarme — la
+    // squadra da 6 resta strutturalmente sopra il tetto (partite lunghe, ~34% sconfitte-allarme
+    // lì) e tira su l'aggregato di qualche punto oltre il limite. Vedi `missionTuning` e
+    // `npm run sim`.
+    tuning: { enemyPower: 0.93, alarmStart: 17 },
     layout: {
       rooms: [
         {id:'A01',name:'GARAGE',col:1,row:1,w:1,h:1,links:['B02'],exit:true},
@@ -219,11 +222,16 @@ const MISSIONS = {
       'Portate ogni operativo ancora vivo nel punto di consegna per l’estrazione.',
     ],
     mapNote: mapNote('il nucleo dati', 13),
-    // PRIMA TARATURA (simulatore bot, N=140/cella): winrate aggregato 2-6 ~65%, ma con forte
-    // pendenza fra 2p (~30%) e 6p (~93%): manca da scortare, ogni operativo in più è quasi puro
-    // valore. Chiudere lo spread è la SECONDA PASSATA — slot `garrison` con `minSquad` per le
-    // squadre grandi, uno alla volta e misurati. Vedi `missionTuning` e `npm run sim`.
-    tuning: { enemyPower: 1.30 },
+    // TARATURA (simulatore bot, N=400/cella): enemyPower 0.73 + alarmStart 56 per portare
+    // winrate aggregato 2-6 e sconfitte-allarme dentro le fasce target del progetto (52-72% win,
+    // 4-18% sconfitte-allarme): risultato 56% win, 6% sconfitte-allarme. Qui l'allarme di
+    // partenza va tenuto alto apposta: le partite durano poco (~9-10 round, si muore quasi
+    // sempre per sterminio, non per l'allarme) quindi senza un `alarmStart` molto sopra il
+    // default l'allarme non arriva mai a 100 e la fascia 4-18% non si può raggiungere. Resta
+    // forte pendenza fra 2p (~17%) e 6p (~79%): manca da scortare, ogni operativo in più è quasi
+    // puro valore. Chiudere lo spread resta una SECONDA PASSATA — slot `garrison` con `minSquad`
+    // per le squadre grandi, uno alla volta e misurati. Vedi `missionTuning` e `npm run sim`.
+    tuning: { enemyPower: 0.73, alarmStart: 56 },
     layout: {
       rooms: [
         {id:'A01',name:'SALA SERVER',col:1,row:1,w:2,h:1,links:['A03','C02'],cover:true},
@@ -268,10 +276,12 @@ const MISSIONS = {
       'Portate l’informatore e ogni operativo ancora vivo nel punto di consegna.',
     ],
     mapNote: mapNote('la cella', 12),
-    // PRIMA TARATURA (simulatore bot, N=140/cella): winrate aggregato 2-6 ~68%, spread stretto
-    // (61-76%). `hostageBleed` resta a 18 (default): abbassarlo è SECONDA PASSATA, per rifinire la
-    // pressione sul gioco umano dopo i playtest. Vedi `missionTuning` e `npm run sim`.
-    tuning: { enemyPower: 0.68 },
+    // TARATURA (simulatore bot, N=400/cella): enemyPower 0.90 + alarmStart 24 per portare
+    // winrate aggregato 2-6 e sconfitte-allarme dentro le fasce target del progetto (52-72% win,
+    // 4-18% sconfitte-allarme): risultato 66% win, 16% sconfitte-allarme. `hostageBleed` resta a
+    // 18 (default): abbassarlo è SECONDA PASSATA, per rifinire la pressione sul gioco umano dopo
+    // i playtest. Vedi `missionTuning` e `npm run sim`.
+    tuning: { enemyPower: 0.90, alarmStart: 24 },
     layout: {
       rooms: [
         {id:'A01',name:'CORRIDOIO GUARDIE',col:1,row:1,w:1,h:1,links:['A05','B02'],node:true},
