@@ -333,6 +333,33 @@
 .dot.case{background:#ffcf4a;box-shadow:0 0 7px #ffcf4a}
 .legend{gap:12px;flex-wrap:wrap}
 
+/* FEEDBACK COLPO SUI TOKEN
+   Ogni variazione d'integrità che arriva dal server fa salire il numero sopra l'unità colpita
+   ed evaporare, mentre il token prende una scrollata col lampo (rosso = danno, acido = cura).
+   Il numero non può stare DENTRO `.token`: il suo clip-path lo taglierebbe. Vive quindi in
+   `.token-slot`, il contenitore che avvolge ogni token della stanza; anche le animazioni del
+   colpo stanno sullo slot, così non litigano con quelle del token (la pulsazione di un ostile
+   ingaggiato, quella della valigetta a terra). Lo slot `ghost` è il posto vuoto lasciato da chi
+   è stato abbattuto dal colpo stesso: il numero si vede lo stesso.
+   Durate allineate a HIT_FLASH_MS / HIT_STAGGER_MS in src/App.tsx. */
+.token-slot{position:relative;flex:none;display:flex}
+.token-slot.ghost{width:40.5px;height:40.5px}
+.token-slot .token{position:relative}
+.token-slot.hit{animation:token-shake .48s ease-out}
+.token-slot.hit .token:after,.token-slot.healed .token:after{content:"";position:absolute;inset:0;pointer-events:none;animation:token-flash .48s ease-out}
+.token-slot.hit .token:after{background:var(--red)}
+.token-slot.healed .token:after{background:var(--acid)}
+@keyframes token-shake{0%,100%{transform:translateX(0)}18%{transform:translateX(-4px)}38%{transform:translateX(3px)}58%{transform:translateX(-2px)}78%{transform:translateX(1px)}}
+@keyframes token-flash{from{opacity:.75}to{opacity:0}}
+.hit-floats{position:absolute;left:50%;bottom:calc(100% - 12px);width:0;height:0;z-index:7;pointer-events:none}
+.hit-float{position:absolute;left:0;bottom:0;font:700 19px Impact,"Arial Narrow",sans-serif;font-style:normal;letter-spacing:.04em;white-space:nowrap;opacity:0;color:#ff8693;text-shadow:0 0 10px #ff4a5eaa,0 2px 3px #000;animation:hit-float 1.2s ease-out forwards;animation-delay:calc(var(--i,0)*.12s)}
+.hit-float.heal{color:#d9f69b;text-shadow:0 0 10px #c9ff45aa,0 2px 3px #000}
+@keyframes hit-float{0%{opacity:0;transform:translate(-50%,8px) scale(.7)}18%{opacity:1;transform:translate(-50%,0) scale(1.15)}40%{opacity:1;transform:translate(-50%,-7px) scale(1)}100%{opacity:0;transform:translate(-50%,-26px) scale(.96)}}
+.board-map.mini .token-slot.ghost{width:21px;height:21px}
+.board-map.mini .hit-floats{bottom:calc(100% - 7px)}
+.board-map.mini .hit-float{font-size:12px;animation-name:hit-float-mini}
+@keyframes hit-float-mini{0%{opacity:0;transform:translate(-50%,5px) scale(.7)}18%{opacity:1;transform:translate(-50%,0) scale(1.1)}40%{opacity:1;transform:translate(-50%,-4px) scale(1)}100%{opacity:0;transform:translate(-50%,-16px) scale(.96)}}
+
 /* Stanze rettangolari: due celle, quindi il titolo può restare su una riga sola. */
 .board-map .tile.wide header small{max-width:100%}
 

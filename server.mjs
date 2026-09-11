@@ -37,6 +37,7 @@ const REVIVE_RATIO = 0.25;
 const HEAL_AMOUNT = 12;            // RIPRISTINO sul compagno più ferito — allineato a src/App.tsx
 const HACK_DRONE_DAMAGE = 10;      // INTRUSIONE colpisce anche un drone nella stanza — allineato a src/App.tsx
 const LAZARUS_RATIO = 0.4;
+const HITS_KEPT = 24;              // colpi recenti tenuti in coda per il feedback sui token (vedi `hit`)
 
 // TARATURA PER DIMENSIONE SQUADRA
 // Il numero di nemici è sempre lo stesso: con la squadra crescono solo vita (`hp`) e danno (`dmg`)
@@ -368,6 +369,8 @@ async function loadPersistedGame() {
   if (game && !Array.isArray(game.alarmSpawns)) game.alarmSpawns = [];
   // Porte: le partite salvate prima di questo sistema non hanno stato porte (tutte aperte).
   if (game && !game.doors) game.doors = {};
+  // Feedback colpo: le partite salvate prima non hanno la coda dei colpi recenti.
+  if (game && !Array.isArray(game.hits)) { game.hits = []; game.hitSeq = 0; }
   // Passive e seconda manovra: aggiorna le partite salvate senza alterarne la squadra.
   if (game) for (const p of game.players) {
     const template = templates.find((item) => item.id === p.characterId);
@@ -475,6 +478,7 @@ function createGame(body) {
   const narrative={goalHeadline:mission.goalHeadline, ...mission.narrative(layout,roomName)};
   return {
     code:makeCode(), phase:'lobby', round:1, alarm:tuning.alarmStart, breach:0, alarmSpawns:[],
+    hits:[], hitSeq:0,
     hpScale:players.length?hpScale:1, dmgScale:players.length?dmgScale:1, maxPlayers, seq,
     turnOrder:players.map((p)=>p.id), activePlayerId:players[0]?.id||null,
     missionId:mission.id, title:mission.title, location:`HELIX TOWER // SETTORE ${['NORD','SUD','EST','OVEST'][Math.floor(Math.random()*4)]}`,
@@ -500,14 +504,32 @@ function log(text,tone='system') {
   game.feed = game.feed.slice(0,10);
 }
 
+// FEEDBACK COLPO SUI TOKEN
+// Ogni variazione di integrità lascia una voce qui, con un id progressivo. I client fanno
+// polling: confrontano l'ultimo id già visto e per le voci nuove fanno salire il numero sopra
+// il token colpito (vedi useHitFlashes in src/App.tsx). È un buffer di eventi recenti, non uno
+// storico: le voci vecchie si buttano. `targetId` è l'id dell'unità (operativo o nemico) oppure
+// `hostage` per l'informatore, `room` serve a piazzare il numero anche se il token è già sparito
+// dalla plancia (il nemico ucciso dal colpo che lo ha tolto di mezzo).
+function hit(targetId,amount,kind,room) {
+  if(!game||!targetId||!room) return;
+  const value=Math.round(amount);
+  if(value<=0) return;
+  game.hitSeq=(game.hitSeq||0)+1;
+  game.hits=[...(game.hits||[]),{id:game.hitSeq,targetId,room,amount:value,kind}].slice(-HITS_KEPT);
+}
+
 function damageEnemy(enemy,dmg,actor) {
+  const before=enemy.hp;
   enemy.hp=Math.max(0,enemy.hp-dmg);
+  hit(enemy.id,before-enemy.hp,'damage',enemy.room);
   log(`${actor} infligge ${dmg} danni a ${enemy.name} in ${enemy.room}.`, 'combat');
   if(enemy.hp===0) log(`${enemy.name} neutralizzato in ${enemy.room}.`, 'success');
 }
 
 function revive(target,healer,amount) {
   target.hp=Math.min(target.maxHp,amount);
+  hit(target.id,target.hp,'heal',target.room);
   log(`${healer} rianima ${target.name} in ${target.room}.`, 'success');
 }
 
@@ -664,7 +686,9 @@ function applyAction(p,action){
         if(!wounded){ log(`${p.name} non ha nessuno da curare in ${p.room}.`,'system'); }
         else{
           const amount=HEAL_AMOUNT;
+          const before=wounded.hp;
           wounded.hp=Math.min(wounded.maxHp,wounded.hp+amount);
+          hit(wounded.id,wounded.hp-before,'heal',wounded.room);
           log(`${p.name} ripristina ${amount} integrità a ${wounded.name} in ${p.room}.`,'success');
         }
       }
@@ -690,7 +714,11 @@ function applyAction(p,action){
       }
       else if(p.characterId==='ripper'){
         for(const ally of game.players.filter((x)=>x.room===p.room)){
-          if(alive(ally)) ally.hp=Math.min(ally.maxHp,ally.hp+18);
+          if(alive(ally)){
+            const before=ally.hp;
+            ally.hp=Math.min(ally.maxHp,ally.hp+18);
+            hit(ally.id,ally.hp-before,'heal',ally.room);
+          }
           else revive(ally,p.name,Math.round(ally.maxHp*LAZARUS_RATIO));
         }
         log(`${p.name} attiva Protocollo Lazarus in ${roomLabel(p.room)}.`,'success');
@@ -720,7 +748,10 @@ function resolveEnemies(){
   if(game.missionId==='ostaggio'&&game.hostage.freed&&!game.hostage.delivered&&!game.hostage.holder){
     const room=hostageRoomNow();
     if(enemiesIn(room).length){
+      const before=game.hostage.hp;
       game.hostage.hp=Math.max(0,game.hostage.hp-HOSTAGE_UNESCORTED_DAMAGE);
+      // L'informatore non è un'unità: sulla plancia è il segnalino `hostage` della sua stanza.
+      hit('hostage',before-game.hostage.hp,'damage',room);
       log(`Gli ostili colpiscono l’informatore lasciato solo in ${roomLabel(room)}: ${HOSTAGE_UNESCORTED_DAMAGE} danni.`,'danger');
     }
   }
@@ -761,13 +792,18 @@ function enemyDamage(enemy,target){
   let damage=enemy.damage;
   if(hasPassive(target,'chrome-plates')) damage=Math.ceil(damage/2);
   const lethal=target.hp-damage<=0;
+  const before=target.hp;
   if(lethal&&hasPassive(target,'last-plate')&&target.lastPlateRound!==game.round){
     target.hp=1;
     target.lastPlateRound=game.round;
+    hit(target.id,before-target.hp,'damage',target.room);
     log(`${target.name} attiva Ultima piastra e resta a 1 integrità.`,'success');
     return {damage,saved:true};
   }
   target.hp=Math.max(0,target.hp-damage);
+  // Il numero che sale sul token è l'integrità persa davvero, non il danno nominale: con le
+  // Piastre di cromo o l'Ultima piastra deve coincidere con quanto scende la barra.
+  hit(target.id,before-target.hp,'damage',target.room);
   return {damage,saved:false};
 }
 

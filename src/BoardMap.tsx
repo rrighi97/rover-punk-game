@@ -16,6 +16,9 @@ export type Pawn = { id: string; label: string; img?: string; name: string; colo
 export type Foe = { id: string; label: string; img?: string; name: string; elite?: boolean; hunting?: boolean };
 // Segnalini di scenario e di missione: partenza, nodi, teca, valigetta, punto di consegna.
 export type Marker = { id: string; label: string; name: string; kind: string; done?: boolean };
+// Colpo appena incassato da un'unità: arriva dal server (game.hits) e resta "vivo" il tempo
+// dell'animazione (vedi useHitFlashes in App.tsx).
+export type Hit = { id: number; targetId: string; room: string; amount: number; kind: string };
 
 const GAP = 1.8; // spazio fra due stanze, in percentuale del riquadro
 
@@ -106,8 +109,26 @@ function RoomMarks({ room, hover }: { room: Room; hover: Hover }) {
   </div>;
 }
 
+// COLPO SUL TOKEN
+// Il numero del danno (o della cura) sale sopra l'unità colpita e evapora, e il token lampeggia
+// con una scrollata. Il numero NON può stare dentro `.token`: il clip-path del token lo
+// taglierebbe. Vive quindi in un contenitore `.token-slot` che avvolge il token e non ritaglia
+// nulla. La classe del colpo sta sullo slot: così l'animazione non litiga con quella del token
+// (es. la pulsazione di un ostile ingaggiato).
+function TokenSlot({ hits, ghost, children }: { hits: Hit[]; ghost?: boolean; children?: React.ReactNode }) {
+  const tone = !hits.length ? '' : hits.some((h) => h.kind !== 'heal') ? 'hit' : 'healed';
+  return <span className={`token-slot ${ghost ? 'ghost' : ''} ${tone}`}>
+    {children}
+    {hits.length > 0 && <span className="hit-floats" aria-hidden="true">
+      {hits.map((h, i) => <i className={`hit-float ${h.kind}`} style={{ '--i': i } as React.CSSProperties} key={h.id}>
+        {h.kind === 'heal' ? '+' : '−'}{h.amount}
+      </i>)}
+    </span>}
+  </span>;
+}
+
 export default function BoardMap({
-  rooms, pawnsIn, foesIn, marksIn, doors, variant = 'board', highlight = [], selected, currentRoom, onPick,
+  rooms, pawnsIn, foesIn, marksIn, doors, hits = [], variant = 'board', highlight = [], selected, currentRoom, onPick,
 }: {
   rooms: Room[];
   pawnsIn: (roomId: string) => Pawn[];
@@ -116,6 +137,8 @@ export default function BoardMap({
   // Porte chiuse della plancia: chiave `id1-id2` (ordine alfabetico) -> true se chiusa. Una
   // porta assente dalla mappa è aperta. Disegnata in verde (aperta) o rosso (chiusa).
   doors?: Record<string, boolean>;
+  // Colpi da mostrare adesso sui token, già filtrati per durata da chi chiama.
+  hits?: Hit[];
   variant?: 'board' | 'mini';
   highlight?: string[];
   selected?: string;
@@ -161,6 +184,12 @@ export default function BoardMap({
       const pawns = pawnsIn(room.id);
       const foes = foesIn(room.id);
       const marks = marksIn?.(room.id) || [];
+      const roomHits = hits.filter((h) => h.room === room.id);
+      const hitsOn = (unitId: string) => roomHits.filter((h) => h.targetId === unitId);
+      // Colpo senza token: il nemico abbattuto sparisce dalla plancia nello stesso istante in cui
+      // arriva il danno che lo ha ucciso. Il numero va mostrato lo stesso, in coda alla fila.
+      const onBoard = new Set([...marks, ...foes, ...pawns].map((unit) => unit.id));
+      const orphanHits = roomHits.filter((h) => !onBoard.has(h.targetId));
       const reachable = highlight.includes(room.id);
       const classes = ['tile'];
       if (foes.length) classes.push('hostile');
@@ -180,18 +209,17 @@ export default function BoardMap({
         <header><b>{room.id}</b><small>{room.name}</small></header>
         <RoomMarks room={room} hover={hover} />
         <div className="tokens">
-          {marks.map((mark) => <span
+          {marks.map((mark) => <TokenSlot hits={hitsOn(mark.id)} key={mark.id}><span
             className={`token mark-token ${mark.kind} ${mark.done ? 'done' : ''}`}
             {...hover(`${room.id}:mark:${mark.id}`, mark.name, 'mark')}
-            key={mark.id}
-          >{mark.label}</span>)}
-          {foes.map((foe) => <span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''}`} {...hover(`${room.id}:foe:${foe.id}`, foe.name, 'foe')} key={foe.id}>{foe.img ? <img src={foe.img} alt={foe.label} /> : foe.label}</span>)}
-          {pawns.map((pawn) => <span
+          >{mark.label}</span></TokenSlot>)}
+          {foes.map((foe) => <TokenSlot hits={hitsOn(foe.id)} key={foe.id}><span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''}`} {...hover(`${room.id}:foe:${foe.id}`, foe.name, 'foe')}>{foe.img ? <img src={foe.img} alt={foe.label} /> : foe.label}</span></TokenSlot>)}
+          {pawns.map((pawn) => <TokenSlot hits={hitsOn(pawn.id)} key={pawn.id}><span
             className={`token pawn ${pawn.down ? 'down' : ''} ${pawn.self ? 'self' : ''} ${pawn.carrying ? 'carrying' : ''}`}
             {...hover(`${room.id}:pawn:${pawn.id}`, pawn.name, 'pawn', pawn.color)}
             style={{ '--unit': pawn.color } as React.CSSProperties}
-            key={pawn.id}
-          >{pawn.img ? <img src={pawn.img} alt={pawn.label} /> : pawn.label}</span>)}
+          >{pawn.img ? <img src={pawn.img} alt={pawn.label} /> : pawn.label}</span></TokenSlot>)}
+          {orphanHits.length > 0 && <TokenSlot hits={orphanHits} ghost />}
         </div>
       </Tag>;
     })}

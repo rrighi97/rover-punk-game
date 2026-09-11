@@ -8,7 +8,7 @@ import {
 import Settings, { SettingsButton } from './Settings';
 import { AudioProvider, playSfx, playSiren } from './audio';
 import { qrMatrix } from './qr';
-import BoardMap, { type Room } from './BoardMap';
+import BoardMap, { type Hit, type Room } from './BoardMap';
 import { charImg, enemyImg, enemyKind } from './roster';
 import PassiveAbilities, { type PassiveAbility } from './PassiveAbilities';
 
@@ -26,7 +26,7 @@ type Hostage = { room:string; holder:string|null; hp:number; maxHp:number; freed
 type Narrative = { objective:string; vaultUnlocked:string; opening:string; goalHeadline:string; purged?:string };
 type MissionMeta = { id:string; title:string; tagline:string; brief:string; goalHeadline:string; intro:string; objectives:string[]; mapNote:string };
 type EnemyRosterEntry = { key:string; tier:number; name:string; type:string; hp:number; damage:number; threat:number; note:string; deploy:string };
-type Game ={ code:string; phase:'lobby'|'active'|'victory'|'defeat'; maxPlayers:number; round:number; alarm:number; alarmSpawns:number[]; breach:number; missionId:string; title:string; location:string; objective:string; narrative:Narrative; map:Room[]; doors:Record<string,boolean>; nodes:Record<string,boolean>; startRoom:string; vaultRoom:string; dropRoom:string; nodeRooms:string[]; nodesRequired:number; caseRoom:string|null; caseHolder:string|null; caseDelivered:boolean; caseAt:string|null; purged:boolean; hostage:Hostage; hostageAt:string|null; vaultOpen:boolean; players:Player[]; enemies:Enemy[]; feed:FeedItem[]; event:{title:string;text:string}; waiting:string[]; turnOrder:string[]; activePlayerId:string|null };
+type Game ={ code:string; phase:'lobby'|'active'|'victory'|'defeat'; maxPlayers:number; round:number; alarm:number; alarmSpawns:number[]; breach:number; missionId:string; title:string; location:string; objective:string; narrative:Narrative; map:Room[]; doors:Record<string,boolean>; nodes:Record<string,boolean>; startRoom:string; vaultRoom:string; dropRoom:string; nodeRooms:string[]; nodesRequired:number; caseRoom:string|null; caseHolder:string|null; caseDelivered:boolean; caseAt:string|null; purged:boolean; hostage:Hostage; hostageAt:string|null; vaultOpen:boolean; players:Player[]; enemies:Enemy[]; feed:FeedItem[]; hits?:Hit[]; event:{title:string;text:string}; waiting:string[]; turnOrder:string[]; activePlayerId:string|null };
 type Snapshot = { game:Game|null; templates:Template[]; enemyRoster:EnemyRosterEntry[]; missions:MissionMeta[]; networkUrl:string; networkUrls?:string[] };
 
 const emptySnapshot:Snapshot={game:null,templates:[],enemyRoster:[],missions:[],networkUrl:''};
@@ -317,13 +317,14 @@ function Lobby({game,templates,networkUrl,onStart,onReset}:{game:Game;templates:
   </main>;
 }
 
-function TacticalMap({game,selfId}:{game:Game;selfId?:string}){
+function TacticalMap({game,selfId,hits}:{game:Game;selfId?:string;hits?:Hit[]}){
   return <BoardMap
     rooms={roomsOf(game)}
     pawnsIn={pawnsOf(game,selfId)}
     foesIn={foesOf(game)}
     marksIn={marksOf(game)}
     doors={game.doors}
+    hits={hits}
   />;
 }
 
@@ -372,6 +373,44 @@ function useSpawnAlerts(game:Game|null){
   return {current:queue[0]||null,dismiss};
 }
 
+// FEEDBACK COLPO IN TEMPO REALE
+// Il server accoda ogni variazione d'integrità in `game.hits` con un id progressivo (vedi `hit`
+// in server.mjs). Qui, a ogni poll, si prendono le voci più recenti di quella già vista e si
+// tengono "vive" per HIT_FLASH_MS: finché lo sono, sopra il token colpito sale il numero del
+// danno e il token lampeggia (BoardMap). Stesso schema di useSpawnAlerts: si confrontano due
+// poll, niente arretrati al primo caricamento di una partita.
+// HIT_FLASH_MS e HIT_STAGGER_MS devono restare allineati a durata e ritardo di .hit-float in
+// styles.css: più colpi arrivati insieme partono sfalsati, e il numero più in ritardo deve
+// arrivare in fondo alla sua animazione prima di essere tolto di scena.
+const HIT_FLASH_MS=1200,HIT_STAGGER_MS=120;
+const HITS_PER_POLL=8; // un telefono tornato da uno sfondo lungo non deve sparare 24 numeri insieme
+function useHitFlashes(game:Game|null){
+  const seen=useRef({code:'',id:0});
+  const timers=useRef<ReturnType<typeof setTimeout>[]>([]);
+  const [live,setLive]=useState<Hit[]>([]);
+  useEffect(()=>()=>{timers.current.forEach(clearTimeout);},[]);
+  useEffect(()=>{
+    if(!game)return;
+    const hits=game.hits||[];
+    const last=hits.length?hits[hits.length-1].id:0;
+    const known=seen.current;
+    // Partita nuova (o prima lettura): si parte dal presente, senza rigiocare i colpi già avvenuti.
+    if(known.code!==game.code){seen.current={code:game.code,id:last};setLive([]);return;}
+    if(last<=known.id)return;
+    seen.current={code:game.code,id:last};
+    const fresh=hits.filter((h)=>h.id>known.id).slice(-HITS_PER_POLL);
+    if(!fresh.length)return;
+    setLive((l)=>[...l,...fresh]);
+    const ids=new Set(fresh.map((h)=>h.id));
+    const timer=setTimeout(()=>{
+      timers.current=timers.current.filter((t)=>t!==timer);
+      setLive((l)=>l.filter((h)=>!ids.has(h.id)));
+    },HIT_FLASH_MS+(fresh.length-1)*HIT_STAGGER_MS);
+    timers.current.push(timer);
+  },[game]);
+  return live;
+}
+
 // Avviso a tutto schermo: dimensione fissa (non si adatta al testo, è il testo che ci sta
 // dentro), foto del nemico grande, chiusura manuale o dopo SPAWN_ALERT_SECONDS. Durata, sirena
 // e pulsazione (vedi .spawn-alert-pulse in styles.css) sono tutte allineate a questo stesso
@@ -407,6 +446,7 @@ function Board({game,templates,missions,offline,onReset}:{game:Game;templates:Te
   const stage=missionStage(game);
   const cargo=cargoStatus(game);
   const spawnAlert=useSpawnAlerts(game);
+  const hits=useHitFlashes(game);
   // Un segnale acustico marca la fine dell'operazione, vittoria o sconfitta.
   useEffect(()=>{ if(game.phase==='victory')playSfx('confirm'); if(game.phase==='defeat')playSfx('alert'); },[game.phase]);
   const outcome=outcomeText(game);
@@ -415,7 +455,7 @@ function Board({game,templates,missions,offline,onReset}:{game:Game;templates:Te
     <header className="topbar"><div className="brand"><span className="brand-mark">R//P</span><div><b>ROVERPUNK</b><small>{offline?'SEGNALE INTERROTTO':'GM AUTONOMO ONLINE'}</small></div></div><div className="mission"><small>OPERAZIONE ATTIVA</small><strong>{game.title}</strong></div><div className="telemetry"><span><Radio size={16}/> CODICE <b>{game.code}</b></span><span><Timer size={16}/> ROUND <b>{String(game.round).padStart(2,'0')}</b></span>{game.phase==='active'&&active&&<span className="turn-chip"><Footprints size={16}/> TURNO <b>{active.name}</b></span>}<AlarmReadout alarm={game.alarm}/><button type="button" className="alarm-panel-open" onClick={()=>window.open(`${location.pathname}?mode=alarm`,'roverpunk-alarm')} title="Apri il pannello ALLARME in una finestra a parte"><ShieldAlert size={15}/> PANNELLO ALLARME</button><SettingsButton onOpen={()=>setSettings(true)}/></div></header>
     <section className="board-grid">
       <aside className="panel intel-panel"><div className="panel-kicker">01 // DIRETTIVA</div><h1>{game.narrative.goalHeadline}</h1><p>{game.objective}</p>{mission&&<button className="briefing-link" onClick={()=>setBriefing(true)}><BookOpen size={12}/> BRIEFING COMPLETO — INTRO · STORYLINE · OBIETTIVI · MAPPA</button>}<div className="objective"><span>NODI VIOLATI</span><b>{game.breach} / {game.nodesRequired}</b><i style={{width:`${Math.min(1,game.breach/(game.nodesRequired||1))*100}%`}}/></div><div className={`case-track ${cargo.done?'done':''}`}><span><Briefcase size={13}/> {cargo.label}</span><b>{cargo.text}</b></div><div className="stage-card"><small>{stage.label}</small><b>{stage.short}</b><p>{stage.text}</p></div><div className="section-label">FLUSSO TATTICO</div><ol className="feed">{game.feed.slice(0,5).map((item,i)=><li className={item.tone} key={`${item.time}-${i}`}><time>{item.time}</time><span>{item.text}</span></li>)}</ol></aside>
-      <section className="tactical panel"><div className="map-head"><span>PIANTA // {game.location}</span><span className="stage-tag">{stage.label} · {stage.short}</span><span>{roomsOf(game).length} STANZE · RILEVAMENTO PASSIVO</span></div><TacticalMap game={game}/><div className="legend"><span><i className="dot friendly"/>SQUADRA</span><span><i className="dot hostile"/>OSTILE</span><span><i className="dot start"/>PARTENZA</span><span><i className="dot system"/>NODO</span>{game.missionId!=='nucleo'&&<span><i className="dot case"/>{cargo.label}</span>}<span><i className="dot exit"/>CONSEGNA</span><span><i className="dot hunting"/>INGAGGIATO</span><span><i className="dot door-open"/>PORTA APERTA</span><span><i className="dot door-closed"/>PORTA BLOCCATA</span><strong className={linked===0?'stalled':''}>{status}</strong></div></section>
+      <section className="tactical panel"><div className="map-head"><span>PIANTA // {game.location}</span><span className="stage-tag">{stage.label} · {stage.short}</span><span>{roomsOf(game).length} STANZE · RILEVAMENTO PASSIVO</span></div><TacticalMap game={game} hits={hits}/><div className="legend"><span><i className="dot friendly"/>SQUADRA</span><span><i className="dot hostile"/>OSTILE</span><span><i className="dot start"/>PARTENZA</span><span><i className="dot system"/>NODO</span>{game.missionId!=='nucleo'&&<span><i className="dot case"/>{cargo.label}</span>}<span><i className="dot exit"/>CONSEGNA</span><span><i className="dot hunting"/>INGAGGIATO</span><span><i className="dot door-open"/>PORTA APERTA</span><span><i className="dot door-closed"/>PORTA BLOCCATA</span><strong className={linked===0?'stalled':''}>{status}</strong></div></section>
       <aside className="panel threats-panel">{(()=>{const living=game.enemies.filter((e)=>e.hp>0);return <><div className="panel-kicker">03 // MINACCE · {living.length}</div>{living.map((e)=>{const contested=game.players.some((p)=>p.hp>0&&p.room===e.room);return <div className={`threat-card ${e.type==='ÉLITE'?'elite':''} ${contested?'contested':''}`} key={e.id}><span className="threat-icon"><FoeIcon kind={enemyKind(e.id)} alt={e.type}/></span><div><small>{e.type} // {e.room} {roomOf(game,e.room)?.name||''} · DANNO +{e.damage}</small><b>{e.name}</b><Meter value={e.hp} max={e.maxHp} tone="red"/><em>{contested?'IN CONTATTO CON LA SQUADRA':e.locked?`VI INSEGUE · ${e.hp}/${e.maxHp}`:`DI PRESIDIO · ${e.hp}/${e.maxHp}`}</em></div></div>;})}</>;})()}<div className="section-label">RISPOSTA DEL SISTEMA</div><div className="gm-card"><small>GM AUTONOMO // PREVISIONE</small><b>{game.event.title}</b><p>{game.event.text}</p></div></aside>
     </section>
     <footer className="squadbar"><div className="squad-title"><Users size={19}/><span>SQUADRA<br/><b>{alivePlayers} OPERATIVI</b></span></div>{game.players.map((p)=>{const isTurn=game.phase==='active'&&p.id===game.activePlayerId;return <article className={`operative ${p.hp<=0?'down':''} ${isTurn?'active-turn':''}`} key={p.id} style={{'--accent':p.color} as React.CSSProperties}><span className="portrait"><OpIcon characterId={p.characterId} alt={p.callsign}/></span><div className="op-name"><b>{p.name}</b><small>{p.role} · {p.connected?'ONLINE':'OFFLINE'}</small><span className="op-room"><MapPin size={10}/> {p.room} {roomOf(game,p.room)?.name||''}</span><PassiveAbilities passives={p.passives} compact/></div><div className="hp"><Meter value={p.hp} max={p.maxHp}/><small>INTEGRITÀ {p.hp}/{p.maxHp} · CAR {p.mag}/{p.maxMag}</small></div><div className={`status ${isTurn?'ready':''}`}>{p.hp<=0?'K.O.':isTurn?'IN GIOCO':p.turnDone?'TURNO CHIUSO':'IN CODA'}</div></article>;})}</footer>
@@ -518,6 +558,8 @@ function PlayerConsole({game,templates,player,session,offline,onRepick}:{game:Ga
   useEffect(()=>{setPending(null);},[game.activePlayerId,game.round]);
   // Stesso avviso a tutto schermo della plancia (lampeggio + sirena) quando entra una nuova minaccia.
   const spawnAlert=useSpawnAlerts(game);
+  // Stesso feedback colpo della plancia sulla mini-mappa della manovra.
+  const hits=useHitFlashes(game);
   const room=roomOf(game,player.room);
   const exits=room?.links||[];
   // Porte: solo quelle aperte sono attraversabili in manovra; quelle chiuse vanno sbloccate
@@ -601,7 +643,7 @@ function PlayerConsole({game,templates,player,session,offline,onRepick}:{game:Ga
     </section>
     <footer className="player-footer"><span>{game.code} // {game.location}</span><div className="ticker"><Crosshair/> {game.narrative.goalHeadline}</div><span>{error||'CANALE CIFRATO'}</span></footer>
     {moving&&<div className="move-overlay"><div className="move-panel"><header><div><small>MANOVRA // DA {player.room} {room?.name}</small><b>SCEGLI LA STANZA</b></div><button className="move-close" onClick={()=>setMoving(false)}><X size={18}/></button></header>
-      <BoardMap variant="mini" rooms={roomsOf(game)} pawnsIn={pawnsOf(game,player.id)} foesIn={foesOf(game)} marksIn={marksOf(game)} doors={game.doors} highlight={openExits} currentRoom={player.room} onPick={(id)=>{void act('move',id);}}/>
+      <BoardMap variant="mini" rooms={roomsOf(game)} pawnsIn={pawnsOf(game,player.id)} foesIn={foesOf(game)} marksIn={marksOf(game)} doors={game.doors} hits={hits} highlight={openExits} currentRoom={player.room} onPick={(id)=>{void act('move',id);}}/>
       <footer>{hostilesNow.length?<b className="warn"><AlertTriangle size={13}/> Sganciarti da {player.room} ti espone al fuoco di {hostilesNow[0].name}.</b>:<b><DoorOpen size={13}/> Porte aperte: {openExits.join(' · ')||'nessuna'}</b>}{lockedExits.length>0&&<b className="warn"><LockKeyhole size={13}/> Bloccate: {lockedExits.join(' · ')} — sbloccale con SBLOCCA PORTA</b>}<span>{error}</span></footer>
     </div></div>}
     {settings&&<Settings templates={templates} onClose={()=>setSettings(false)}/>}
