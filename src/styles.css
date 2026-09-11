@@ -643,3 +643,9 @@ img.manual-avatar{object-fit:cover;padding:0}
   :root[data-notch=right]{--safe-r:calc(env(safe-area-inset-right,0px)*.85);--safe-l:calc(env(safe-area-inset-left,0px)*.25)}
   .spawn-alert,.move-overlay,.settings-overlay,.manual-overlay,.outcome{padding:max(4px,var(--safe-t)) max(6px,var(--safe-r)) max(4px,var(--safe-b)) max(6px,var(--safe-l))}
 }
+
+/* PLANCIA // barre vita e integrità nemici più leggibili da lontano */
+.squadbar .hp .meter{height:10px}
+.squadbar .hp small{font-size:8px}
+.threat-hp{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;margin-top:2px}
+.threat-hp>span{font:700 11px Impact,"Arial Narrow",sans-serif;letter-spacing:.04em;color:#ffd0d5;font-variant-numeric:tabular-nums;white-space:nowrap}
