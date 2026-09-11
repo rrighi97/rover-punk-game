@@ -5,7 +5,7 @@
 // Non si disegnano corridoi: il collegamento fra due stanze è la porta sul muro condiviso.
 // Due stanze possono essere confinanti e restare separate da un muro cieco, senza porta.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 export type Room = {
@@ -85,6 +85,35 @@ function corridors(rooms: Room[]) {
   return out;
 }
 
+// APERTURA PORTA
+// Quando una porta passa da bloccata (rossa) ad aperta (verde) la si ingrandisce per un istante
+// e poi torna normale, così dalla plancia si vede subito *quale* porta è stata sbloccata.
+// Il confronto è fra due poll consecutivi di `/api/state`: al primo render non si anima nulla
+// (altrimenti a inizio partita lampeggerebbero tutte le porte già aperte).
+const DOOR_OPEN_MS = 900;
+
+function useDoorOpenings(doors?: Record<string, boolean>) {
+  const prev = useRef<Record<string, boolean> | null>(null);
+  const timers = useRef<number[]>([]);
+  const [opened, setOpened] = useState<string[]>([]);
+  useEffect(() => () => { for (const t of timers.current) clearTimeout(t); }, []);
+  useEffect(() => {
+    const before = prev.current;
+    prev.current = { ...doors };
+    if (!before) return;
+    const fresh = Object.keys(before).filter((key) => before[key] && !doors?.[key]);
+    if (!fresh.length) return;
+    setOpened((list) => [...list, ...fresh]);
+    // Il timer non va agganciato al cleanup dell'effetto: l'oggetto `doors` cambia identità a
+    // ogni poll (800ms), il cleanup scatterebbe prima della fine dell'animazione.
+    timers.current.push(window.setTimeout(
+      () => setOpened((list) => list.filter((key) => !fresh.includes(key))),
+      DOOR_OPEN_MS,
+    ));
+  }, [doors]);
+  return opened;
+}
+
 // TOOLTIP ISTANTANEO
 // Il `title` nativo del browser compare solo dopo un ritardo: segnalini e etichette usano invece
 // un riquadro proprio, mostrato subito al passaggio del mouse (come il pannello ALLARME). Vive in
@@ -123,6 +152,7 @@ export default function BoardMap({
   onPick?: (roomId: string) => void;
 }) {
   const { boxOf, centerOf } = geometry(rooms);
+  const justOpened = useDoorOpenings(doors);
   const [tip, setTip] = useState<Tip | null>(null);
   // Testi raccolti a ogni render: il riquadro mostra sempre i dati aggiornati (HP, stato) e
   // sparisce da solo se il segnalino sotto il mouse cambia stanza o esce di scena.
@@ -150,7 +180,7 @@ export default function BoardMap({
         const closed = Boolean(doors?.[key]);
         return <span
           key={key}
-          className={`door-unit ${spot.vertical ? 'v' : 'h'} ${closed ? 'closed' : 'open'}`}
+          className={`door-unit ${spot.vertical ? 'v' : 'h'} ${closed ? 'closed' : 'open'} ${!closed && justOpened.includes(key) ? 'just-opened' : ''}`}
           style={{ left: `${spot.x}%`, top: `${spot.y}%` }}
           {...hover(`door:${key}`, `${closed ? 'PORTA BLOCCATA' : 'PORTA APERTA'} — collega ${a.id} ${a.name} e ${b.id} ${b.name}. ${closed ? 'Va aperta con SBLOCCA PORTA prima di attraversarla.' : 'Attraversabile in manovra.'}`, 'mark')}
         />;
