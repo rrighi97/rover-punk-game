@@ -52,7 +52,10 @@ const hostageCarrierOf=(game:Game)=>game.players.find((p)=>p.id===game.hostage.h
 const caseRoomOf=(game:Game)=>game.caseAt||carrierOf(game)?.room||game.caseRoom;
 const hostageRoomOf=(game:Game)=>game.hostageAt||hostageCarrierOf(game)?.room||game.hostage.room;
 const pawnsOf=(game:Game,selfId?:string)=>(roomId:string)=>game.players.filter((p)=>p.room===roomId).map((p)=>({id:p.id,label:p.callsign[0],img:charImg(p.characterId),name:`${p.name} · ${p.role}${p.id===game.caseHolder?' · PORTA LA VALIGETTA':''}${p.id===game.hostage.holder?' · SCORTA L’INFORMATORE':''}`,color:p.color,down:p.hp<=0,self:p.id===selfId,carrying:p.id===game.caseHolder||p.id===game.hostage.holder}));
-const foesOf=(game:Game)=>(roomId:string)=>game.enemies.filter((e)=>e.hp>0&&e.room===roomId).map((e)=>({id:e.id,label:enemyBadge(e),img:enemyImg(enemyKind(e.id)),name:`${e.name} · ${e.hp}/${e.maxHp} · DANNO +${e.damage} · ${e.locked?'INGAGGIATO: VI INSEGUE':'DI PRESIDIO: FERMO IN QUESTA STANZA'}`,elite:e.type==='ÉLITE',hunting:e.locked}));
+// Un nemico morto resta in game.enemies con hp<=0 (il server non lo rimuove mai): passando gli id
+// "in dissolvenza" (vedi useDyingEnemies) lo si tiene a schermo oltre il momento della morte, il
+// tempo di far girare l'animazione di collasso invece di farlo sparire di scatto al prossimo poll.
+const foesOf=(game:Game,dying:Set<string>=new Set())=>(roomId:string)=>game.enemies.filter((e)=>(e.hp>0||dying.has(e.id))&&e.room===roomId).map((e)=>({id:e.id,label:enemyBadge(e),img:enemyImg(enemyKind(e.id)),name:`${e.name} · ${e.hp}/${e.maxHp} · DANNO +${e.damage} · ${e.locked?'INGAGGIATO: VI INSEGUE':'DI PRESIDIO: FERMO IN QUESTA STANZA'}`,elite:e.type==='ÉLITE',hunting:e.locked,dying:e.hp<=0}));
 
 // SEGNALINI DI SCENARIO E MISSIONE
 // Oltre a squadra e ostili, la plancia mostra la zona di partenza, i nodi, l'obiettivo
@@ -317,14 +320,36 @@ function Lobby({game,templates,networkUrl,onStart,onReset}:{game:Game;templates:
   </main>;
 }
 
-function TacticalMap({game,selfId}:{game:Game;selfId?:string}){
+function TacticalMap({game,selfId,dying}:{game:Game;selfId?:string;dying?:Set<string>}){
   return <BoardMap
     rooms={roomsOf(game)}
     pawnsIn={pawnsOf(game,selfId)}
-    foesIn={foesOf(game)}
+    foesIn={foesOf(game,dying)}
     marksIn={marksOf(game)}
     doors={game.doors}
   />;
+}
+
+// Segue chi passa da vivo a morto fra un poll e l'altro (game.enemies non perde mai le voci a
+// hp<=0) e tiene il loro id "in dissolvenza" per DEATH_FADE_MS: il tempo che serve al token/alla
+// card per completare l'animazione di collasso (vedi .token.dying/.threat-card.dying in
+// styles.css) prima di sparire per davvero da mappa e lista minacce.
+const DEATH_FADE_MS=650;
+function useDyingEnemies(game:Game|null){
+  const prev=useRef<{code:string;alive:Set<string>}>({code:'',alive:new Set()});
+  const [dying,setDying]=useState<Set<string>>(new Set());
+  useEffect(()=>{
+    if(!game)return;
+    const aliveNow=new Set(game.enemies.filter((e)=>e.hp>0).map((e)=>e.id));
+    const sameGame=prev.current.code===game.code;
+    const freshlyDead=sameGame?game.enemies.filter((e)=>e.hp<=0&&prev.current.alive.has(e.id)).map((e)=>e.id):[];
+    prev.current={code:game.code,alive:aliveNow};
+    if(!freshlyDead.length)return;
+    setDying((d)=>new Set([...d,...freshlyDead]));
+    const timer=setTimeout(()=>setDying((d)=>{const next=new Set(d);for(const id of freshlyDead)next.delete(id);return next;}),DEATH_FADE_MS);
+    return()=>clearTimeout(timer);
+  },[game]);
+  return dying;
 }
 
 function AlarmReadout({alarm}:{alarm:number}){
@@ -407,6 +432,7 @@ function Board({game,templates,missions,offline,onReset}:{game:Game;templates:Te
   const stage=missionStage(game);
   const cargo=cargoStatus(game);
   const spawnAlert=useSpawnAlerts(game);
+  const dying=useDyingEnemies(game);
   // Un segnale acustico marca la fine dell'operazione, vittoria o sconfitta.
   useEffect(()=>{ if(game.phase==='victory')playSfx('confirm'); if(game.phase==='defeat')playSfx('alert'); },[game.phase]);
   const outcome=outcomeText(game);
@@ -415,8 +441,8 @@ function Board({game,templates,missions,offline,onReset}:{game:Game;templates:Te
     <header className="topbar"><div className="brand"><span className="brand-mark">R//P</span><div><b>ROVERPUNK</b><small>{offline?'SEGNALE INTERROTTO':'GM AUTONOMO ONLINE'}</small></div></div><div className="mission"><small>OPERAZIONE ATTIVA</small><strong>{game.title}</strong></div><div className="telemetry"><span><Radio size={16}/> CODICE <b>{game.code}</b></span><span><Timer size={16}/> ROUND <b>{String(game.round).padStart(2,'0')}</b></span>{game.phase==='active'&&active&&<span className="turn-chip"><Footprints size={16}/> TURNO <b>{active.name}</b></span>}<AlarmReadout alarm={game.alarm}/><button type="button" className="alarm-panel-open" onClick={()=>window.open(`${location.pathname}?mode=alarm`,'roverpunk-alarm')} title="Apri il pannello ALLARME in una finestra a parte"><ShieldAlert size={15}/> PANNELLO ALLARME</button><SettingsButton onOpen={()=>setSettings(true)}/></div></header>
     <section className="board-grid">
       <aside className="panel intel-panel"><div className="panel-kicker">01 // DIRETTIVA</div><h1>{game.narrative.goalHeadline}</h1><p>{game.objective}</p>{mission&&<button className="briefing-link" onClick={()=>setBriefing(true)}><BookOpen size={12}/> BRIEFING COMPLETO — INTRO · STORYLINE · OBIETTIVI · MAPPA</button>}<div className="objective"><span>NODI VIOLATI</span><b>{game.breach} / {game.nodesRequired}</b><i style={{width:`${Math.min(1,game.breach/(game.nodesRequired||1))*100}%`}}/></div><div className={`case-track ${cargo.done?'done':''}`}><span><Briefcase size={13}/> {cargo.label}</span><b>{cargo.text}</b></div><div className="stage-card"><small>{stage.label}</small><b>{stage.short}</b><p>{stage.text}</p></div><div className="section-label">FLUSSO TATTICO</div><ol className="feed">{game.feed.slice(0,5).map((item,i)=><li className={item.tone} key={`${item.time}-${i}`}><time>{item.time}</time><span>{item.text}</span></li>)}</ol></aside>
-      <section className="tactical panel"><div className="map-head"><span>PIANTA // {game.location}</span><span className="stage-tag">{stage.label} · {stage.short}</span><span>{roomsOf(game).length} STANZE · RILEVAMENTO PASSIVO</span></div><TacticalMap game={game}/><div className="legend"><span><i className="dot friendly"/>SQUADRA</span><span><i className="dot hostile"/>OSTILE</span><span><i className="dot start"/>PARTENZA</span><span><i className="dot system"/>NODO</span>{game.missionId!=='nucleo'&&<span><i className="dot case"/>{cargo.label}</span>}<span><i className="dot exit"/>CONSEGNA</span><span><i className="dot hunting"/>INGAGGIATO</span><span><i className="dot door-open"/>PORTA APERTA</span><span><i className="dot door-closed"/>PORTA BLOCCATA</span><strong className={linked===0?'stalled':''}>{status}</strong></div></section>
-      <aside className="panel threats-panel">{(()=>{const living=game.enemies.filter((e)=>e.hp>0);return <><div className="panel-kicker">03 // MINACCE · {living.length}</div>{living.map((e)=>{const contested=game.players.some((p)=>p.hp>0&&p.room===e.room);return <div className={`threat-card ${e.type==='ÉLITE'?'elite':''} ${contested?'contested':''}`} key={e.id}><span className="threat-icon"><FoeIcon kind={enemyKind(e.id)} alt={e.type}/></span><div><small>{e.type} // {e.room} {roomOf(game,e.room)?.name||''} · DANNO +{e.damage}</small><b>{e.name}</b><Meter value={e.hp} max={e.maxHp} tone="red"/><em>{contested?'IN CONTATTO CON LA SQUADRA':e.locked?`VI INSEGUE · ${e.hp}/${e.maxHp}`:`DI PRESIDIO · ${e.hp}/${e.maxHp}`}</em></div></div>;})}</>;})()}<div className="section-label">RISPOSTA DEL SISTEMA</div><div className="gm-card"><small>GM AUTONOMO // PREVISIONE</small><b>{game.event.title}</b><p>{game.event.text}</p></div></aside>
+      <section className="tactical panel"><div className="map-head"><span>PIANTA // {game.location}</span><span className="stage-tag">{stage.label} · {stage.short}</span><span>{roomsOf(game).length} STANZE · RILEVAMENTO PASSIVO</span></div><TacticalMap game={game} dying={dying}/><div className="legend"><span><i className="dot friendly"/>SQUADRA</span><span><i className="dot hostile"/>OSTILE</span><span><i className="dot start"/>PARTENZA</span><span><i className="dot system"/>NODO</span>{game.missionId!=='nucleo'&&<span><i className="dot case"/>{cargo.label}</span>}<span><i className="dot exit"/>CONSEGNA</span><span><i className="dot hunting"/>INGAGGIATO</span><span><i className="dot door-open"/>PORTA APERTA</span><span><i className="dot door-closed"/>PORTA BLOCCATA</span><strong className={linked===0?'stalled':''}>{status}</strong></div></section>
+      <aside className="panel threats-panel">{(()=>{const living=game.enemies.filter((e)=>e.hp>0||dying.has(e.id));return <><div className="panel-kicker">03 // MINACCE · {living.filter((e)=>e.hp>0).length}</div>{living.map((e)=>{const isDying=dying.has(e.id);const contested=game.players.some((p)=>p.hp>0&&p.room===e.room);return <div className={`threat-card ${e.type==='ÉLITE'?'elite':''} ${contested?'contested':''} ${isDying?'dying':''}`} key={e.id}><span className="threat-icon"><FoeIcon kind={enemyKind(e.id)} alt={e.type}/></span><div><small>{e.type} // {e.room} {roomOf(game,e.room)?.name||''} · DANNO +{e.damage}</small><b>{e.name}</b><Meter value={e.hp} max={e.maxHp} tone="red"/><em>{isDying?'NEUTRALIZZATO':contested?'IN CONTATTO CON LA SQUADRA':e.locked?`VI INSEGUE · ${e.hp}/${e.maxHp}`:`DI PRESIDIO · ${e.hp}/${e.maxHp}`}</em></div></div>;})}</>;})()}<div className="section-label">RISPOSTA DEL SISTEMA</div><div className="gm-card"><small>GM AUTONOMO // PREVISIONE</small><b>{game.event.title}</b><p>{game.event.text}</p></div></aside>
     </section>
     <footer className="squadbar"><div className="squad-title"><Users size={19}/><span>SQUADRA<br/><b>{alivePlayers} OPERATIVI</b></span></div>{game.players.map((p)=>{const isTurn=game.phase==='active'&&p.id===game.activePlayerId;return <article className={`operative ${p.hp<=0?'down':''} ${isTurn?'active-turn':''}`} key={p.id} style={{'--accent':p.color} as React.CSSProperties}><span className="portrait"><OpIcon characterId={p.characterId} alt={p.callsign}/></span><div className="op-name"><b>{p.name}</b><small>{p.role} · {p.connected?'ONLINE':'OFFLINE'}</small><span className="op-room"><MapPin size={10}/> {p.room} {roomOf(game,p.room)?.name||''}</span><PassiveAbilities passives={p.passives} compact/></div><div className="hp"><Meter value={p.hp} max={p.maxHp}/><small>INTEGRITÀ {p.hp}/{p.maxHp} · CAR {p.mag}/{p.maxMag}</small></div><div className={`status ${isTurn?'ready':''}`}>{p.hp<=0?'K.O.':isTurn?'IN GIOCO':p.turnDone?'TURNO CHIUSO':'IN CODA'}</div></article>;})}</footer>
     {(game.phase==='victory'||game.phase==='defeat')&&<div className={`outcome ${game.phase}`}><div><small>OPERAZIONE CONCLUSA</small><h2>{outcome.title}</h2><p>{outcome.text}</p><button className="primary-btn" data-sfx="confirm" onClick={onReset}>NUOVA OPERAZIONE <RotateCw size={17}/></button></div></div>}

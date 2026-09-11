@@ -13,7 +13,7 @@ export type Room = {
   node?: boolean; exit?: boolean; vault?: boolean; cover?: boolean; exposed?: boolean; start?: boolean;
 };
 export type Pawn = { id: string; label: string; img?: string; name: string; color?: string; down?: boolean; self?: boolean; carrying?: boolean };
-export type Foe = { id: string; label: string; img?: string; name: string; elite?: boolean; hunting?: boolean };
+export type Foe = { id: string; label: string; img?: string; name: string; elite?: boolean; hunting?: boolean; dying?: boolean };
 // Segnalini di scenario e di missione: partenza, nodi, teca, valigetta, punto di consegna.
 export type Marker = { id: string; label: string; name: string; kind: string; done?: boolean };
 
@@ -185,7 +185,7 @@ export default function BoardMap({
             {...hover(`${room.id}:mark:${mark.id}`, mark.name, 'mark')}
             key={mark.id}
           >{mark.label}</span>)}
-          {foes.map((foe) => <span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''}`} {...hover(`${room.id}:foe:${foe.id}`, foe.name, 'foe')} key={foe.id}>{foe.img ? <img src={foe.img} alt={foe.label} /> : foe.label}</span>)}
+          {foes.map((foe) => <span className={`token foe ${foe.elite ? 'elite' : ''} ${foe.hunting ? 'hunting' : ''} ${foe.dying ? 'dying' : ''}`} {...(foe.dying ? {} : hover(`${room.id}:foe:${foe.id}`, foe.name, 'foe'))} key={foe.id}>{foe.img ? <img src={foe.img} alt={foe.label} /> : foe.label}</span>)}
           {pawns.map((pawn) => <span
             className={`token pawn ${pawn.down ? 'down' : ''} ${pawn.self ? 'self' : ''} ${pawn.carrying ? 'carrying' : ''}`}
             {...hover(`${room.id}:pawn:${pawn.id}`, pawn.name, 'pawn', pawn.color)}
