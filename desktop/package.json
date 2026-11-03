@@ -1,0 +1,13 @@
+{
+  "name": "roverpunk-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wrapper Electron di Roverpunk: app macOS con server di gioco incorporato",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "@electron/packager": "20.3.0",
+    "electron": "44.4.3"
+  }
+}
